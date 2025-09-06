@@ -50,7 +50,6 @@ const SystemLogs = () => {
   const [maxEntries, setMaxEntries] = useState(50)
   const [logs, setLogs] = useState([])
   const [originalLogs, setOriginalLogs] = useState([]) // Store original complete log data
-  const [logIndexMap, setLogIndexMap] = useState(new Map()) // Log index cache for performance optimization
   const [searchTerm, setSearchTerm] = useState('')
   const [filteredLogs, setFilteredLogs] = useState([])
   const [isInitialized, setIsInitialized] = useState(false)
@@ -68,16 +67,7 @@ const SystemLogs = () => {
   const [contextLines, setContextLines] = useState(3)
   const [targetLogPosition, setTargetLogPosition] = useState(-1)
 
-  // Create index map for fast log lookup
-  const createLogIndexMap = useCallback((logs) => {
-    const indexMap = new Map()
-    logs.forEach((log, index) => {
-      // Use timestamp + message combination as unique key to avoid duplicates
-      const key = `${log.timestamp}-${log.message.substring(0, 100)}`
-      indexMap.set(key, index)
-    })
-    setLogIndexMap(indexMap)
-  }, [])
+
 
   // Process a log entry from the backend
   const processLogEntry = (entry) => {
@@ -139,7 +129,6 @@ const SystemLogs = () => {
           const fullLogData = fullLogsResponse.data.data
           const processedFullLogs = fullLogData.map(processLogEntry)
           setOriginalLogs(processedFullLogs)
-          createLogIndexMap(processedFullLogs) // Create index cache
         }
       }
 
@@ -195,8 +184,6 @@ const SystemLogs = () => {
         setLogs(processedLogs)
         // Store original complete log data for context queries
         setOriginalLogs(processedLogs)
-        // Create index cache for performance optimization
-        createLogIndexMap(processedLogs)
       } else {
         setError('Failed to fetch logs: ' + response.data.message)
         if (!isAutoRefresh) {
@@ -341,17 +328,18 @@ const SystemLogs = () => {
     if (searchTerm.trim()) {
       // Search mode: get target log from currently displayed logs
       targetLog = logs[logIndex]
-      // Use index cache for fast lookup, fallback to traditional method
-      const key = `${targetLog.timestamp}-${targetLog.message.substring(0, 100)}`
-      realLogIndex = logIndexMap.get(key)
 
-      if (realLogIndex === undefined) {
-        // Cache miss, use traditional search method
-        realLogIndex = originalLogs.findIndex(log =>
-          log.timestamp === targetLog.timestamp &&
-          log.message === targetLog.message &&
-          log.type === targetLog.type
-        )
+      // Find the real index in originalLogs using exact match
+      realLogIndex = originalLogs.findIndex(log =>
+        log.timestamp === targetLog.timestamp &&
+        log.message === targetLog.message &&
+        log.type === targetLog.type
+      )
+
+      // If not found in originalLogs, something is wrong
+      if (realLogIndex === -1) {
+        console.warn('Target log not found in originalLogs:', targetLog)
+        realLogIndex = logIndex // Fallback to current index
       }
     } else {
       // No search state: use index directly
