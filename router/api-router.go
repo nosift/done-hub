@@ -24,6 +24,7 @@ func SetApiRouter(router *gin.Engine) {
 	systemInfo.Use(middleware.RootAuth())
 	{
 		systemInfo.POST("/log", controller.SystemLog)
+		systemInfo.POST("/log/query", controller.SystemLogQuery)
 	}
 
 	apiRouter.POST("/telegram/:token", middleware.Telegram(), controller.TelegramBotWebHook)

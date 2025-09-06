@@ -120,7 +120,7 @@ func Relay(c *gin.Context) {
 		actualRetryTimes := c.GetInt("actual_retry_times")
 
 		// 记录重试尝试 - 按照OpenAI规范的结构化日志
-		logger.LogError(c.Request.Context(), fmt.Sprintf("retry_attempt attempt=%d/%d channel_id=%d channel_name=\"%s\" remaining_channels=%d cooldown_applied=%t",
+		logger.LogWarn(c.Request.Context(), fmt.Sprintf("retry_attempt attempt=%d/%d channel_id=%d channel_name=\"%s\" remaining_channels=%d cooldown_applied=%t",
 			attemptCount, actualRetryTimes, channel.Id, channel.Name, remainChannels, cooldownApplied))
 
 		apiErr, done = RelayHandler(relay)
@@ -207,7 +207,7 @@ func shouldCooldowns(c *gin.Context, channel *model.Channel, apiErr *types.OpenA
 	if apiErr.StatusCode == http.StatusTooManyRequests {
 		model.ChannelGroup.SetCooldowns(channelId, modelName)
 		cooldownApplied = true
-		logger.LogError(c.Request.Context(), fmt.Sprintf("channel_cooldown channel_id=%d model=\"%s\" duration=%ds reason=\"rate_limit\"",
+		logger.LogWarn(c.Request.Context(), fmt.Sprintf("channel_cooldown channel_id=%d model=\"%s\" duration=%ds reason=\"rate_limit\"",
 			channelId, modelName, config.RetryCooldownSeconds))
 	}
 
