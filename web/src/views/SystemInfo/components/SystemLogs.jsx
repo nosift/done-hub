@@ -110,8 +110,10 @@ const SystemLogs = () => {
   }
 
   // Fetch logs using search query
-  const fetchSearchLogs = useCallback(async() => {
-    setLoading(true)
+  const fetchSearchLogs = useCallback(async(isAutoRefresh = false) => {
+    if (!isAutoRefresh) {
+      setLoading(true)
+    }
     setError('')
 
     try {
@@ -153,7 +155,9 @@ const SystemLogs = () => {
       setError('Error fetching logs: ' + error.message)
       showError(error.message)
     } finally {
-      setLoading(false)
+      if (!isAutoRefresh) {
+        setLoading(false)
+      }
     }
   }, [maxEntries, searchTerm, useRegex])
 
@@ -161,7 +165,7 @@ const SystemLogs = () => {
   const fetchLogs = useCallback(async(isAutoRefresh = false) => {
     // If there's a search term, use search API, otherwise use regular API
     if (searchTerm.trim()) {
-      return fetchSearchLogs()
+      return fetchSearchLogs(isAutoRefresh)
     }
 
     // Only show loading indicator for manual refresh to avoid page jumping
@@ -538,7 +542,7 @@ const SystemLogs = () => {
             flexDirection: { xs: 'column', sm: 'row' },
             alignItems: { xs: 'stretch', sm: 'center' },
             gap: { xs: 1, sm: 0 },
-            py: { xs: 1, sm: 0 }
+            py: { xs: 2, sm: 1 }
           }}
         >
           <Typography
@@ -595,7 +599,7 @@ const SystemLogs = () => {
                   inputProps: { min: 1, max: 60 },
                   endAdornment: <InputAdornment position="end">s</InputAdornment>
                 }}
-                sx={{ width: { xs: 70, sm: 80 } }}
+                sx={{ width: { xs: 60, sm: 70 } }}
               />
               <TextField
                 label="Limit"
@@ -604,7 +608,7 @@ const SystemLogs = () => {
                 value={maxEntries}
                 onChange={handleMaxEntriesChange}
                 InputProps={{ inputProps: { min: 1, max: 999 } }}
-                sx={{ width: { xs: 70, sm: 80 } }}
+                sx={{ width: { xs: 60, sm: 70 } }}
               />
               <IconButton onClick={handleClearLogs} color="error" size="small">
                 <Icon icon="solar:trash-bin-trash-bold"/>
