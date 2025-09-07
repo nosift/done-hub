@@ -109,65 +109,34 @@ const SystemLogs = () => {
     }
   }
 
-  // Fetch logs using search query
-  const fetchSearchLogs = useCallback(async(isAutoRefresh = false) => {
-    if (!isAutoRefresh) {
-      setLoading(true)
+  // Frontend search function - filter logs based on search term and regex mode
+  const filterLogs = useCallback((logs, searchTerm, useRegex) => {
+    if (!searchTerm.trim()) {
+      return logs
     }
-    setError('')
 
     try {
-      // Fetch complete logs and search results in parallel for better performance
-      const [fullLogsResponse, searchResponse] = await Promise.all([
-        API.post('/api/system_info/log', { count: maxEntries }),
-        API.post('/api/system_info/log/query', {
-          count: maxEntries,
-          search_term: searchTerm,
-          use_regex: useRegex
-        })
-      ])
-
-      // Process complete logs for context lookup
-      if (fullLogsResponse.data.success) {
-        const fullLogData = fullLogsResponse.data.data
-        const processedFullLogs = fullLogData.map((entry, index) => processLogEntry(entry, index))
-        setOriginalLogs(processedFullLogs)
+      if (useRegex) {
+        const regex = new RegExp(searchTerm, 'i')
+        return logs.filter(log => regex.test(log.message))
       } else {
-        console.warn('Failed to fetch complete logs for context lookup')
-      }
-
-      const response = searchResponse
-
-      if (response.data.success) {
-        const result = response.data.data
-        if (result && result.logs && Array.isArray(result.logs)) {
-          const processedLogs = result.logs.map(processLogEntry)
-          setLogs(processedLogs)
-          updateLastLogTimestamp(processedLogs)
-        } else {
-          setLogs([])
-        }
-      } else {
-        setError('Failed to fetch logs: ' + response.data.message)
-        showError(response.data.message)
+        const lowerSearchTerm = searchTerm.toLowerCase()
+        return logs.filter(log =>
+          log.message.toLowerCase().includes(lowerSearchTerm)
+        )
       }
     } catch (error) {
-      setError('Error fetching logs: ' + error.message)
-      showError(error.message)
-    } finally {
-      if (!isAutoRefresh) {
-        setLoading(false)
-      }
+      // If regex is invalid, fall back to plain text search
+      console.warn('Invalid regex, falling back to plain text search:', error)
+      const lowerSearchTerm = searchTerm.toLowerCase()
+      return logs.filter(log =>
+        log.message.toLowerCase().includes(lowerSearchTerm)
+      )
     }
-  }, [maxEntries, searchTerm, useRegex])
+  }, [])
 
   // Fetch logs from the API
   const fetchLogs = useCallback(async(isAutoRefresh = false) => {
-    // If there's a search term, use search API, otherwise use regular API
-    if (searchTerm.trim()) {
-      return fetchSearchLogs(isAutoRefresh)
-    }
-
     // Only show loading indicator for manual refresh to avoid page jumping
     if (!isAutoRefresh) {
       setLoading(true)
@@ -175,6 +144,7 @@ const SystemLogs = () => {
     setError('')
 
     try {
+      // Fetch logs according to current maxEntries setting
       const response = await API.post('/api/system_info/log', {
         count: maxEntries
       })
@@ -182,8 +152,10 @@ const SystemLogs = () => {
       if (response.data.success) {
         const logData = response.data.data
         const processedLogs = logData.map(processLogEntry)
-        setLogs(processedLogs)
         setOriginalLogs(processedLogs)
+        // Apply search filter to the fetched logs
+        const filteredLogs = filterLogs(processedLogs, searchTerm, useRegex)
+        setLogs(filteredLogs)
         updateLastLogTimestamp(processedLogs)
       } else {
         setError('Failed to fetch logs: ' + response.data.message)
@@ -201,9 +173,7 @@ const SystemLogs = () => {
         setLoading(false)
       }
     }
-  }, [maxEntries, searchTerm, fetchSearchLogs])
-
-
+  }, [filterLogs, searchTerm, useRegex, maxEntries])
 
   // Initialize logs on component mount
   useEffect(() => {
@@ -213,12 +183,14 @@ const SystemLogs = () => {
     }
   }, [fetchLogs, isInitialized])
 
-  // Refetch logs when maxEntries changes (but not during initialization)
+  // Apply frontend search filtering when search parameters change
   useEffect(() => {
-    if (isInitialized) {
-      fetchLogs()
+    if (isInitialized && originalLogs.length > 0) {
+      // Apply search filter to the original logs
+      const filteredLogs = filterLogs(originalLogs, searchTerm, useRegex)
+      setLogs(filteredLogs)
     }
-  }, [maxEntries, fetchLogs, isInitialized])
+  }, [isInitialized, originalLogs, searchTerm, useRegex, filterLogs])
 
   // Set up auto-refresh interval
   useEffect(() => {
@@ -337,6 +309,11 @@ const SystemLogs = () => {
     setSearchTerm('')
   }
 
+  // Manual refresh logs
+  const handleManualRefresh = () => {
+    fetchLogs()
+  }
+
 
 
   // Check if user is at bottom of scroll container
@@ -371,24 +348,6 @@ const SystemLogs = () => {
         break
       }
     }
-  }
-
-  // Auto-trigger search when search term changes
-  useEffect(() => {
-    if (searchTerm.trim() && isInitialized) {
-      const timeoutId = setTimeout(() => {
-        fetchSearchLogs()
-      }, 500) // Debounce search
-
-      return () => clearTimeout(timeoutId)
-    }
-  }, [searchTerm, useRegex, isInitialized, fetchSearchLogs])
-
-  // Reset advanced filters
-  const handleResetFilters = () => {
-    setUseRegex(false)
-    setSearchTerm('')
-    setError('')
   }
 
   // Get context for a specific log entry
@@ -653,7 +612,7 @@ const SystemLogs = () => {
               sx={{ flexGrow: 1, maxWidth: { xs: '100%', md: 400 } }}
             />
 
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap' }}>
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap', width: '100%' }}>
               <FormControlLabel
                 control={
                   <Switch
@@ -671,6 +630,24 @@ const SystemLogs = () => {
                   `${logs.length} logs`
                 }
               </Typography>
+
+              <Box sx={{ flexGrow: 1 }} />
+
+              <IconButton
+                onClick={handleManualRefresh}
+                size="small"
+                disabled={loading}
+                sx={{
+                  color: 'primary.main',
+                  '&:hover': {
+                    backgroundColor: theme.palette.mode === 'dark'
+                      ? 'rgba(144, 202, 249, 0.08)'
+                      : 'rgba(25, 118, 210, 0.04)'
+                  }
+                }}
+              >
+                <Icon icon="solar:refresh-bold" />
+              </IconButton>
             </Stack>
           </Stack>
         </Toolbar>
