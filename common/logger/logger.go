@@ -44,10 +44,10 @@ type LogHistory struct {
 	maxSize int
 }
 
-// Global log history instance with a default capacity of 500 entries
+// Global log history instance with a default capacity of 1000 entries
 var logHistory = &LogHistory{
-	entries: make([]LogEntry, 0, 500),
-	maxSize: 500,
+	entries: make([]LogEntry, 0, 1000),
+	maxSize: 1000,
 }
 
 // AddEntry adds a new log entry to the history

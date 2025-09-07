@@ -19,17 +19,14 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  FormControl,
   FormControlLabel,
   IconButton,
   InputAdornment,
-  InputLabel,
-  MenuItem,
   Paper,
-  Select,
   Stack,
   Switch,
   TextField,
+  Tooltip,
   Typography,
   useTheme
 } from '@mui/material'
@@ -51,8 +48,11 @@ const SystemLogs = () => {
   const [logs, setLogs] = useState([])
   const [originalLogs, setOriginalLogs] = useState([]) // Store original complete log data
   const [searchTerm, setSearchTerm] = useState('')
-  const [filteredLogs, setFilteredLogs] = useState([])
   const [isInitialized, setIsInitialized] = useState(false)
+  const [previousLogCount, setPreviousLogCount] = useState(0) // Track log count for auto-scroll
+  const [lastLogTimestamp, setLastLogTimestamp] = useState(null) // Track latest log timestamp for auto-scroll
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false) // Show scroll to bottom button
+  const [userScrolledUp, setUserScrolledUp] = useState(false) // Track if user manually scrolled up
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -67,38 +67,36 @@ const SystemLogs = () => {
   const [contextLines, setContextLines] = useState(3)
   const [targetLogPosition, setTargetLogPosition] = useState(-1)
 
+  // Get scroll containers for log table
+  const getScrollContainers = () => {
+    return [
+      document.querySelector('.log-table-scroll .ps'),
+      document.querySelector('.log-table-scroll'),
+      document.querySelector('.MuiTableContainer-root')
+    ].filter(Boolean)
+  }
 
+  // Update last log timestamp for auto-scroll detection
+  const updateLastLogTimestamp = (logs) => {
+    if (logs.length > 0) {
+      setLastLogTimestamp(logs[logs.length - 1].timestamp)
+    }
+  }
 
   // Process a log entry from the backend
   const processLogEntry = (entry) => {
     try {
-      // Map log levels to our frontend types
-      let type = entry.Level.toLowerCase()
-
-      // Map log levels to our frontend types
-      switch (type) {
-        case 'info':
-          type = 'info'
-          break
-        case 'error':
-        case 'err':
-        case 'fatal':
-          type = 'error'
-          break
-        case 'warn':
-        case 'warning':
-          type = 'warning'
-          break
-        case 'debug':
-          type = 'debug'
-          break
-        default:
-          type = 'info'
+      const level = entry.Level.toLowerCase()
+      const typeMap = {
+        'error': 'error', 'err': 'error', 'fatal': 'error',
+        'warn': 'warning', 'warning': 'warning',
+        'debug': 'debug',
+        'info': 'info'
       }
 
       return {
         timestamp: new Date(entry.Timestamp).toISOString(),
-        type,
+        type: typeMap[level] || 'info',
         message: entry.Message
       }
     } catch (error) {
@@ -117,34 +115,33 @@ const SystemLogs = () => {
     setError('')
 
     try {
-      // Optimization: only fetch complete logs when truly needed, avoid duplicate calls
-      let needFullLogs = originalLogs.length === 0
-
-      if (needFullLogs) {
-        const fullLogsResponse = await API.post('/api/system_info/log', {
-          count: maxEntries
+      // Fetch complete logs and search results in parallel for better performance
+      const [fullLogsResponse, searchResponse] = await Promise.all([
+        API.post('/api/system_info/log', { count: maxEntries }),
+        API.post('/api/system_info/log/query', {
+          count: maxEntries,
+          search_term: searchTerm,
+          use_regex: useRegex
         })
+      ])
 
-        if (fullLogsResponse.data.success) {
-          const fullLogData = fullLogsResponse.data.data
-          const processedFullLogs = fullLogData.map(processLogEntry)
-          setOriginalLogs(processedFullLogs)
-        }
+      // Process complete logs for context lookup
+      if (fullLogsResponse.data.success) {
+        const fullLogData = fullLogsResponse.data.data
+        const processedFullLogs = fullLogData.map((entry, index) => processLogEntry(entry, index))
+        setOriginalLogs(processedFullLogs)
+      } else {
+        console.warn('Failed to fetch complete logs for context lookup')
       }
 
-      const queryParams = {
-        count: maxEntries,
-        search_term: searchTerm,
-        use_regex: useRegex
-      }
-
-      const response = await API.post('/api/system_info/log/query', queryParams)
+      const response = searchResponse
 
       if (response.data.success) {
         const result = response.data.data
         if (result && result.logs && Array.isArray(result.logs)) {
           const processedLogs = result.logs.map(processLogEntry)
           setLogs(processedLogs)
+          updateLastLogTimestamp(processedLogs)
         } else {
           setLogs([])
         }
@@ -182,8 +179,8 @@ const SystemLogs = () => {
         const logData = response.data.data
         const processedLogs = logData.map(processLogEntry)
         setLogs(processedLogs)
-        // Store original complete log data for context queries
         setOriginalLogs(processedLogs)
+        updateLastLogTimestamp(processedLogs)
       } else {
         setError('Failed to fetch logs: ' + response.data.message)
         if (!isAutoRefresh) {
@@ -224,43 +221,59 @@ const SystemLogs = () => {
     // Only set up interval if autoRefresh is enabled
     let interval
     if (autoRefresh && isInitialized) {
-      interval = setInterval(() => fetchLogs(true), refreshInterval)
+      interval = setInterval(() => {
+        fetchLogs(true).then(() => {
+          // Only auto-scroll if user hasn't manually scrolled up
+          if (!userScrolledUp) {
+            setTimeout(() => {
+              const containers = getScrollContainers()
+              for (const container of containers) {
+                if (container.scrollHeight > container.clientHeight &&
+                    container.querySelector('tbody')) {
+                  container.scrollTop = container.scrollHeight
+                  break
+                }
+              }
+            }, 200)
+          }
+        })
+      }, refreshInterval)
     }
 
     return () => {
       if (interval) clearInterval(interval)
     }
-  }, [autoRefresh, fetchLogs, refreshInterval, isInitialized])
+  }, [autoRefresh, fetchLogs, refreshInterval, isInitialized, userScrolledUp])
 
-  // Set filtered logs to current logs (no client-side filtering needed)
+  // Auto-scroll to bottom when NEW logs are added during auto-refresh
   useEffect(() => {
-    setFilteredLogs(logs)
-  }, [logs])
+    // Only auto-scroll if:
+    // 1. Auto-refresh is enabled
+    // 2. We have logs
+    // 3. User hasn't manually scrolled up
+    if (autoRefresh && logs.length > 0 && !userScrolledUp) {
+      // Check if we have new logs by comparing timestamps or count
+      const hasNewLogs = logs.length > previousLogCount ||
+                        (lastLogTimestamp && logs.length > 0 &&
+                         logs[logs.length - 1].timestamp !== lastLogTimestamp)
 
-  // Auto-scroll to bottom when logs update during auto-refresh
-  useEffect(() => {
-    if (autoRefresh && logs.length > 0) {
-      // Use specific selector to target only the log table scroll container
-      const containers = [
-        // Primary target: our specific log table scroll container
-        document.querySelector('.log-table-scroll .ps'),
-        document.querySelector('.log-table-scroll'),
-        // Fallback: table container within the logs card
-        document.querySelector('.MuiTableContainer-root')
-      ].filter(Boolean)
-
-      for (const container of containers) {
-        // Only use containers that are actually scrollable and contain table rows
-        if (container.scrollHeight > container.clientHeight &&
-            container.querySelector('tbody')) {
-          setTimeout(() => {
-            container.scrollTop = container.scrollHeight - container.clientHeight
-          }, 100)
-          break
+      if (hasNewLogs) {
+        const containers = getScrollContainers()
+        for (const container of containers) {
+          if (container.scrollHeight > container.clientHeight &&
+              container.querySelector('tbody')) {
+            setTimeout(() => {
+              container.scrollTop = container.scrollHeight
+            }, 100)
+            break
+          }
         }
       }
     }
-  }, [logs, autoRefresh])
+
+    // Update previous log count for next comparison
+    setPreviousLogCount(logs.length)
+  }, [logs, autoRefresh, previousLogCount, lastLogTimestamp, userScrolledUp])
 
   // Monitor window size changes
   useEffect(() => {
@@ -271,6 +284,30 @@ const SystemLogs = () => {
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [])
+
+  // Monitor scroll position to show/hide scroll to bottom button
+  useEffect(() => {
+    const containers = getScrollContainers()
+    let scrollTimeout
+
+    const handleScroll = () => {
+      clearTimeout(scrollTimeout)
+      scrollTimeout = setTimeout(checkScrollPosition, 100)
+    }
+
+    containers.forEach(container => {
+      container.addEventListener('scroll', handleScroll)
+    })
+
+    setTimeout(checkScrollPosition, 300)
+
+    return () => {
+      clearTimeout(scrollTimeout)
+      containers.forEach(container => {
+        container.removeEventListener('scroll', handleScroll)
+      })
+    }
+  }, [logs])
 
   // Handle max entries change
   const handleMaxEntriesChange = (event) => {
@@ -289,8 +326,6 @@ const SystemLogs = () => {
   const handleClearLogs = () => {
     setLogs([])
     setOriginalLogs([]) // Clear original log data to free memory
-    setLogIndexMap(new Map()) // Clear index cache
-    setFilteredLogs([])
   }
 
   // Clear search
@@ -298,9 +333,40 @@ const SystemLogs = () => {
     setSearchTerm('')
   }
 
-  // Handle search
-  const handleSearch = () => {
-    fetchLogs()
+
+
+  // Check if user is at bottom of scroll container
+  const checkScrollPosition = () => {
+    if (logs.length === 0) {
+      setShowScrollToBottom(false)
+      setUserScrolledUp(false)
+      return
+    }
+
+    const containers = getScrollContainers()
+    for (const container of containers) {
+      if (container.scrollHeight > container.clientHeight &&
+          container.querySelector('tbody')) {
+        const isAtBottom = container.scrollTop >= container.scrollHeight - container.clientHeight - 50
+        setShowScrollToBottom(!isAtBottom)
+        setUserScrolledUp(!isAtBottom)
+        break
+      }
+    }
+  }
+
+  // Scroll to bottom manually
+  const scrollToBottom = () => {
+    const containers = getScrollContainers()
+    for (const container of containers) {
+      if (container.scrollHeight > container.clientHeight &&
+          container.querySelector('tbody')) {
+        container.scrollTop = container.scrollHeight
+        setShowScrollToBottom(false)
+        setUserScrolledUp(false)
+        break
+      }
+    }
   }
 
   // Auto-trigger search when search term changes
@@ -329,26 +395,71 @@ const SystemLogs = () => {
       // Search mode: get target log from currently displayed logs
       targetLog = logs[logIndex]
 
-      // Find the real index in originalLogs using exact match
+      // Strategy 1: Use content matching for search results (most reliable)
       realLogIndex = originalLogs.findIndex(log =>
         log.timestamp === targetLog.timestamp &&
         log.message === targetLog.message &&
         log.type === targetLog.type
       )
 
-      // If not found in originalLogs, something is wrong
+      // Strategy 2: If not found, try fuzzy matching by message only
       if (realLogIndex === -1) {
-        console.warn('Target log not found in originalLogs:', targetLog)
-        realLogIndex = logIndex // Fallback to current index
+        realLogIndex = originalLogs.findIndex(log =>
+          log.message === targetLog.message
+        )
+      }
+
+      // Strategy 3: If still not found, use backend API
+      if (realLogIndex === -1) {
+        console.warn('Target log not found in originalLogs, using backend API')
+        getContextFromBackend(targetLog)
+        return
       }
     } else {
       // No search state: use index directly
       realLogIndex = logIndex
     }
-
     setSelectedLogIndex(realLogIndex)
     setContextDialogOpen(true)
     getContextLogs(realLogIndex)
+  }
+
+  // Get context from backend API when frontend lookup fails
+  const getContextFromBackend = async (targetLog) => {
+    setContextLoading(true)
+    setSelectedLogIndex(-1) // Indicate backend mode
+    setContextDialogOpen(true)
+
+    try {
+      const response = await API.post('/api/system_info/log/context', {
+        timestamp: targetLog.timestamp,
+        message: targetLog.message,
+        type: targetLog.type,
+        context_lines: contextLines
+      })
+
+      if (response.data.success && response.data.data) {
+        const result = response.data.data
+        if (result.logs && Array.isArray(result.logs)) {
+          const processedLogs = result.logs.map(processLogEntry)
+          setContextLogs(processedLogs)
+          setTargetLogPosition(result.target_position || Math.floor(processedLogs.length / 2))
+        } else {
+          setContextLogs([targetLog]) // At least show the target log
+          setTargetLogPosition(0)
+        }
+      } else {
+        console.error('Backend context API failed:', response.data.message)
+        setContextLogs([targetLog])
+        setTargetLogPosition(0)
+      }
+    } catch (error) {
+      console.error('Error fetching context from backend:', error)
+      setContextLogs([targetLog])
+      setTargetLogPosition(0)
+    } finally {
+      setContextLoading(false)
+    }
   }
 
   // Get context logs directly from frontend data (much simpler!)
@@ -392,11 +503,7 @@ const SystemLogs = () => {
     setTargetLogPosition(-1)
   }
 
-  // Handle refresh interval change
-  const handleRefreshIntervalChange = (event) => {
-    const value = parseInt(event.target.value)
-    setRefreshInterval(value)
-  }
+
 
   // Get log label color for display (using original project's Label component colors)
   const getLogLabelColor = (type) => {
@@ -556,7 +663,7 @@ const SystemLogs = () => {
 
               <Typography variant="body2" color="textSecondary" sx={{ whiteSpace: 'nowrap' }}>
                 {searchTerm ?
-                  `${filteredLogs.length}/${logs.length}` :
+                  `${logs.length} results` :
                   `${logs.length} logs`
                 }
               </Typography>
@@ -577,7 +684,51 @@ const SystemLogs = () => {
           />
         )}
 
-        <Box sx={{ height: 600, maxHeight: '70vh', overflow: 'hidden' }}>
+        <Box sx={{ height: 600, maxHeight: '70vh', overflow: 'hidden', position: 'relative' }}>
+          {/* Scroll to bottom button */}
+          {showScrollToBottom && (
+            <Box
+              sx={{
+                position: 'absolute',
+                bottom: 20,
+                left: '50%',
+                transform: 'translateX(-50%)',
+                zIndex: 10,
+                display: 'flex',
+                justifyContent: 'center'
+              }}
+            >
+              <IconButton
+                onClick={scrollToBottom}
+                sx={{
+                  backgroundColor: theme.palette.mode === 'dark'
+                    ? 'rgba(66, 66, 66, 0.95)'
+                    : 'rgba(255, 255, 255, 0.95)',
+                  border: `1px solid ${theme.palette.divider}`,
+                  boxShadow: theme.shadows[4],
+                  width: 40,
+                  height: 40,
+                  backdropFilter: 'blur(8px)',
+                  '&:hover': {
+                    backgroundColor: theme.palette.mode === 'dark'
+                      ? 'rgba(88, 88, 88, 1)'
+                      : 'rgba(248, 249, 250, 1)',
+                    boxShadow: theme.shadows[8]
+                  },
+                  transition: 'all 0.2s ease-in-out'
+                }}
+              >
+                <Icon
+                  icon="solar:arrow-down-bold"
+                  style={{
+                    fontSize: '20px',
+                    color: theme.palette.text.secondary
+                  }}
+                />
+              </IconButton>
+            </Box>
+          )}
+
           <PerfectScrollbar component="div" style={{ height: '100%' }} className="log-table-scroll">
             <TableContainer sx={{ height: '100%' }}>
               <Table stickyHeader>
@@ -590,7 +741,7 @@ const SystemLogs = () => {
                         </Typography>
                       </TableCell>
                     </TableRow>
-                  ) : filteredLogs.length === 0 && !loading ? (
+                  ) : logs.length === 0 && !loading ? (
                     <TableRow>
                       <TableCell colSpan={4} align="center" sx={{ py: 3 }}>
                         <Typography variant="body2" color="textSecondary">
@@ -599,7 +750,7 @@ const SystemLogs = () => {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredLogs.map((log, index) => (
+                    logs.map((log, index) => (
                       <TableRow key={index} hover>
                         <TableCell sx={{ width: 180, py: 1 }}>
                           <Typography
@@ -641,13 +792,14 @@ const SystemLogs = () => {
                         </TableCell>
 
                         <TableCell sx={{ width: 60, py: 1 }}>
-                          <IconButton
-                            size="small"
-                            onClick={() => handleGetContext(index)}
-                            title="View Context"
-                          >
-                            <Icon icon="mdi:unfold-more-horizontal"/>
-                          </IconButton>
+                          <Tooltip title={t('View Context')} arrow>
+                            <IconButton
+                              size="small"
+                              onClick={() => handleGetContext(index)}
+                            >
+                              <Icon icon="mdi:unfold-more-horizontal"/>
+                            </IconButton>
+                          </Tooltip>
                         </TableCell>
                       </TableRow>
                     ))
