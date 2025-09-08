@@ -91,25 +91,41 @@ func (cc *ChannelsChooser) SetCooldowns(channelId int, modelName string) bool {
 
 	key := fmt.Sprintf("%d:%s", channelId, modelName)
 	nowTime := time.Now().Unix()
+	newCooldownTime := nowTime + int64(config.RetryCooldownSeconds)
 
-	cooldownTime, exists := cc.Cooldowns.Load(key)
-	if exists && nowTime < cooldownTime.(int64) {
-		return true
+	// 使用LoadOrStore的原子性，避免竞态条件
+	actualValue, loaded := cc.Cooldowns.LoadOrStore(key, newCooldownTime)
+
+	if loaded {
+		// key已存在，检查是否仍在冷却期内
+		existingCooldownTime := actualValue.(int64)
+		if nowTime < existingCooldownTime {
+			// 仍在冷却期内，无需重新设置
+			return true
+		}
+		// 冷却期已过，尝试更新为新的冷却时间
+		// 如果CompareAndSwap失败，说明其他线程已经更新了，这也是可以接受的
+		cc.Cooldowns.CompareAndSwap(key, existingCooldownTime, newCooldownTime)
 	}
 
-	cc.Cooldowns.LoadOrStore(key, nowTime+int64(config.RetryCooldownSeconds))
 	return true
 }
 
 func (cc *ChannelsChooser) IsInCooldown(channelId int, modelName string) bool {
+	if channelId == 0 || modelName == "" {
+		return false
+	}
+
 	key := fmt.Sprintf("%d:%s", channelId, modelName)
+	nowTime := time.Now().Unix()
 
 	cooldownTime, exists := cc.Cooldowns.Load(key)
 	if !exists {
 		return false
 	}
 
-	return time.Now().Unix() < cooldownTime.(int64)
+	// 直接返回冷却状态，不进行任何清理操作
+	return nowTime < cooldownTime.(int64)
 }
 
 func (cc *ChannelsChooser) CleanupExpiredCooldowns() {
