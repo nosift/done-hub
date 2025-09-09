@@ -85,11 +85,19 @@ func RelayTaskSubmit(c *gin.Context) {
 	}
 	modelName := taskAdaptor.GetModelName()
 	totalChannelsAtStart := model.ChannelGroup.CountAvailableChannels(groupName, modelName)
+
+	// 实际重试次数 = min(配置的重试数, 可用渠道数)
+	actualRetryTimes := retryTimes
+	if totalChannelsAtStart < retryTimes {
+		actualRetryTimes = totalChannelsAtStart
+	}
+
 	c.Set("total_channels_at_start", totalChannelsAtStart)
+	c.Set("actual_retry_times", actualRetryTimes)
 	c.Set("attempt_count", 1) // 初始化尝试计数
 
 	channel := taskAdaptor.GetProvider().GetChannel()
-	for i := retryTimes; i > 0; i-- {
+	for i := actualRetryTimes; i > 0; i-- {
 		model.ChannelGroup.SetCooldowns(channel.Id, taskAdaptor.GetModelName())
 		taskErr = taskAdaptor.SetProvider()
 		if taskErr != nil {
@@ -105,9 +113,6 @@ func RelayTaskSubmit(c *gin.Context) {
 		}
 		modelName := taskAdaptor.GetModelName()
 
-		// 使用请求开始时缓存的总渠道数，保持一致性
-		totalChannels := c.GetInt("total_channels_at_start")
-
 		// 更新尝试计数
 		attemptCount := c.GetInt("attempt_count")
 		c.Set("attempt_count", attemptCount+1)
@@ -118,7 +123,10 @@ func RelayTaskSubmit(c *gin.Context) {
 		tempFilters := append(filters, model.FilterChannelId(skipChannelIds))
 		remainChannels := model.ChannelGroup.CountAvailableChannels(groupName, modelName, tempFilters...)
 
-		logger.LogError(c.Request.Context(), fmt.Sprintf("using channel #%d(%s) to retry (attempt %d/%d, remain channels %d, total channels %d)", channel.Id, channel.Name, attemptCount, totalChannels, remainChannels, totalChannels))
+		// 获取实际重试次数
+		actualRetryTimes := c.GetInt("actual_retry_times")
+
+		logger.LogError(c.Request.Context(), fmt.Sprintf("using channel #%d(%s) to retry (attempt %d/%d, remain channels %d, total channels %d)", channel.Id, channel.Name, attemptCount, actualRetryTimes, remainChannels, c.GetInt("total_channels_at_start")))
 
 		taskErr = taskAdaptor.Relay()
 		if taskErr == nil {

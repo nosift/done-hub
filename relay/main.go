@@ -88,7 +88,7 @@ func Relay(c *gin.Context) {
 	logger.LogError(c.Request.Context(), fmt.Sprintf("retry_start model=%s total_channels=%d config_max_retries=%d actual_max_retries=%d initial_error=\"%s\" status_code=%d",
 		modelName, totalChannelsAtStart, retryTimes, actualRetryTimes, apiErr.OpenAIError.Message, apiErr.StatusCode))
 
-	for i := retryTimes; i > 0; i-- {
+	for i := actualRetryTimes; i > 0; i-- {
 		// 冻结通道并记录是否应用了冷却
 		cooldownApplied := shouldCooldowns(c, channel, apiErr)
 
