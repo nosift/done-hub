@@ -34,7 +34,6 @@ _本项目是基于[one-hub](https://github.com/MartialBE/one-api)二次开发�
 - 支持配置**请求-响应统一模型名称**
 - 支持渠道**额外参数中删除指定参数**
 - 支持渠道`BaseURL`添加**模型变量替换**
-- 支持`Gemini`渠道使用`google_search`
 - 支持`/gemini`原生生图请求的**额外参数透传**
 - 支持**自定义渠道**使用`Claude`原生路由 - 接入`ClaudeCode`
 - 支持`VertexAI`渠道使用`Gemini`原生路由 - 接入`GeminiCli`
