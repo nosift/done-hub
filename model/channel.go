@@ -161,12 +161,18 @@ func GetChannelsByTag(tag string) ([]*Channel, error) {
 }
 
 func DeleteChannelTag(channelId int) error {
-	err := DB.Model(&Channel{}).Where("id = ?", channelId).Update("tag", "").Error
-	return err
+	result := DB.Model(&Channel{}).Where("id = ?", channelId).Update("tag", "")
+	if result.Error == nil && result.RowsAffected > 0 {
+		ChannelGroup.Load()
+	}
+	return result.Error
 }
 
 func BatchDeleteChannel(ids []int) (int64, error) {
 	result := DB.Where("id IN ?", ids).Delete(&Channel{})
+	if result.Error == nil && result.RowsAffected > 0 {
+		ChannelGroup.Load()
+	}
 	return result.RowsAffected, result.Error
 }
 
@@ -500,6 +506,9 @@ func updateChannelUsedQuota(id int, quota int) {
 
 func DeleteDisabledChannel() (int64, error) {
 	result := DB.Where("status = ? or status = ?", config.ChannelStatusAutoDisabled, config.ChannelStatusManuallyDisabled).Delete(&Channel{})
+	if result.Error == nil && result.RowsAffected > 0 {
+		ChannelGroup.Load()
+	}
 	return result.RowsAffected, result.Error
 }
 
