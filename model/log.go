@@ -85,7 +85,15 @@ func RecordLogWithTx(tx *gorm.DB, userId int, logType int, content string) {
 	if logType == LogTypeConsume && !config.LogConsumeEnabled {
 		return
 	}
-	username, _ := CacheGetUsername(userId)
+
+	// 在事务中查询用户名，避免事务未提交时查询不到用户
+	var username string
+	err := tx.Model(&User{}).Where("id = ?", userId).Select("username").Find(&username).Error
+	if err != nil {
+		logger.SysError("failed to get username in tx: " + err.Error())
+		// 如果事务中查询失败，尝试从缓存获取
+		username, _ = CacheGetUsername(userId)
+	}
 
 	log := &Log{
 		UserId:    userId,
@@ -94,7 +102,7 @@ func RecordLogWithTx(tx *gorm.DB, userId int, logType int, content string) {
 		Type:      logType,
 		Content:   content,
 	}
-	err := tx.Create(log).Error
+	err = tx.Create(log).Error
 	if err != nil {
 		logger.SysError("failed to record log with tx: " + err.Error())
 	}

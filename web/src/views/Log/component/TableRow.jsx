@@ -94,15 +94,19 @@ export default function LogTableRow({ item, userIsAdmin, userGroup, columnVisibi
     <>
       <TableRow tabIndex={item.id}>
         {columnVisibility.created_at &&
-          <TableCell sx={{ p: '10px 8px' }}>{timestamp2string(item.created_at)}</TableCell>}
+          <TableCell sx={{
+            p: '10px 8px',
+            whiteSpace: 'nowrap',
+            textAlign: 'center'
+          }}>{timestamp2string(item.created_at)}</TableCell>}
 
         {userIsAdmin && columnVisibility.channel_id && (
-          <TableCell sx={{ p: '10px 8px' }}>
+          <TableCell sx={{ p: '10px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
             {(item.channel_id || '') + ' ' + (item.channel?.name ? '(' + item.channel.name + ')' : '')}
           </TableCell>
         )}
         {userIsAdmin && columnVisibility.user_id && (
-          <TableCell sx={{ p: '10px 8px' }}>
+          <TableCell sx={{ p: '10px 8px', textAlign: 'center' }}>
             <Label color="default" variant="outlined" copyText={item.username}>
               {item.username}
             </Label>
@@ -110,7 +114,7 @@ export default function LogTableRow({ item, userIsAdmin, userGroup, columnVisibi
         )}
 
         {columnVisibility.group && (
-          <TableCell sx={{ p: '10px 8px' }}>
+          <TableCell sx={{ p: '10px 8px', textAlign: 'center' }}>
             {item?.metadata?.group_name ? (
               <Label color="default" variant="soft">
                 {userGroup[item.metadata.group_name]?.name || '跟随用户'}
@@ -121,7 +125,7 @@ export default function LogTableRow({ item, userIsAdmin, userGroup, columnVisibi
           </TableCell>
         )}
         {columnVisibility.token_name && (
-          <TableCell sx={{ p: '10px 8px' }}>
+          <TableCell sx={{ p: '10px 8px', textAlign: 'center' }}>
             {item.token_name && (
               <Label color="default" variant="soft" copyText={item.token_name}>
                 {item.token_name}
@@ -129,12 +133,14 @@ export default function LogTableRow({ item, userIsAdmin, userGroup, columnVisibi
             )}
           </TableCell>
         )}
-        {columnVisibility.type && <TableCell sx={{ p: '10px 8px' }}>{renderType(item.type, LogType, t)}</TableCell>}
+        {columnVisibility.type &&
+          <TableCell sx={{ p: '10px 8px', textAlign: 'center' }}>{renderType(item.type, LogType, t)}</TableCell>}
         {columnVisibility.model_name &&
-          <TableCell sx={{ p: '10px 8px' }}>{viewModelName(item.model_name, item.is_stream)}</TableCell>}
+          <TableCell
+            sx={{ p: '10px 8px', textAlign: 'center' }}>{viewModelName(item.model_name, item.is_stream)}</TableCell>}
 
         {columnVisibility.duration && (
-          <TableCell sx={{ p: '10px 8px' }}>
+          <TableCell sx={{ p: '10px 8px', textAlign: 'center' }}>
             <Stack direction="column" spacing={0.5}>
               <Label color={requestTimeLabelOptions(request_time)}>
                 {item.request_time === 0 ? '无' : request_time_str} {first_time_str ? ' / ' + first_time_str : ''}
@@ -146,11 +152,17 @@ export default function LogTableRow({ item, userIsAdmin, userGroup, columnVisibi
         )}
         {columnVisibility.message && (
           <TableCell
-            sx={{ p: '10px 8px' }}>{viewInput(item, t, totalInputTokens, totalOutputTokens, show, tokenDetails)}</TableCell>
+            sx={{
+              p: '10px 8px',
+              textAlign: 'center'
+            }}>{viewInput(item, t, totalInputTokens, totalOutputTokens, show, tokenDetails)}</TableCell>
         )}
-        {columnVisibility.completion && <TableCell sx={{ p: '10px 8px' }}>{item.completion_tokens !== undefined && item.completion_tokens !== null ? item.completion_tokens : ''}</TableCell>}
+        {columnVisibility.completion && <TableCell sx={{
+          p: '10px 8px',
+          textAlign: 'center'
+        }}>{item.completion_tokens !== undefined && item.completion_tokens !== null ? item.completion_tokens : ''}</TableCell>}
         {columnVisibility.quota && (
-          <TableCell sx={{ p: '10px 8px' }}>
+          <TableCell sx={{ p: '10px 8px', textAlign: 'center' }}>
             {item.type === 2 ? (
               <QuotaWithDetailRow item={item} open={open} setOpen={setOpen}/>
             ) : item.quota ? (
@@ -160,9 +172,18 @@ export default function LogTableRow({ item, userIsAdmin, userGroup, columnVisibi
             )}
           </TableCell>
         )}
-        {columnVisibility.source_ip && <TableCell sx={{ p: '10px 8px' }}>{item.source_ip || ''}</TableCell>}
+        {columnVisibility.source_ip &&
+          <TableCell sx={{ p: '10px 8px', textAlign: 'center' }}>{item.source_ip || ''}</TableCell>}
         {columnVisibility.detail && (
-          <TableCell sx={{ p: '10px 8px' }}>{viewLogContent(item, t, totalInputTokens, totalOutputTokens)}</TableCell>
+          <TableCell sx={{
+            p: '10px 8px',
+            textAlign: 'center',
+            position: 'sticky',
+            right: 0,
+            backgroundColor: 'background.paper',
+            zIndex: 1,
+            boxShadow: '-2px 0 4px rgba(0,0,0,0.1)'
+          }}>{viewLogContent(item, t, totalInputTokens, totalOutputTokens)}</TableCell>
         )}
       </TableRow>
       {/* 展开行 */}

@@ -1,28 +1,38 @@
-import PropTypes from 'prop-types';
-import { Box, Checkbox, IconButton, TableCell, TableHead, TableRow, TableSortLabel, Tooltip, Typography } from '@mui/material';
-import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
+import PropTypes from 'prop-types'
+import {
+  Box,
+  Checkbox,
+  IconButton,
+  TableCell,
+  TableHead,
+  TableRow,
+  TableSortLabel,
+  Tooltip,
+  Typography
+} from '@mui/material'
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
 
 const KeywordTableHead = ({ order, orderBy, headLabel, onRequestSort, numSelected, rowCount, onSelectAllClick }) => {
   const onSort = (property) => (event) => {
-    onRequestSort(event, property);
-  };
+    onRequestSort(event, property)
+  }
 
   const label = (cell) => {
     if (cell.tooltip) {
       return (
         <Box display="flex" alignItems="center" justifyContent="center">
-          <Typography variant="body1" sx={{fontWeight: 'inherit', color: 'inherit'}}>{cell.label}</Typography>
+          <Typography variant="body1" sx={{ fontWeight: 'inherit', color: 'inherit' }}>{cell.label}</Typography>
           <Tooltip title={cell.tooltip} placement="bottom-start" enterDelay={300}>
             <IconButton size="small">
-              <HelpOutlineIcon fontSize="inherit" />
+              <HelpOutlineIcon fontSize="inherit"/>
             </IconButton>
           </Tooltip>
         </Box>
-      );
+      )
     } else {
-      return cell.label;
+      return cell.label
     }
-  };
+  }
 
   return (
     <TableHead>
@@ -36,7 +46,14 @@ const KeywordTableHead = ({ order, orderBy, headLabel, onRequestSort, numSelecte
               sx={{
                 width: headCell.width,
                 minWidth: headCell.minWidth,
-                p: '10px 8px'
+                p: '10px 8px',
+                ...(headCell.sticky && {
+                  position: 'sticky',
+                  right: 0,
+                  backgroundColor: 'background.paper',
+                  zIndex: 2,
+                  boxShadow: '-2px 0 4px rgba(0,0,0,0.1)'
+                })
               }}
             >
               {headCell.id === 'select' && onSelectAllClick ? (
@@ -65,10 +82,10 @@ const KeywordTableHead = ({ order, orderBy, headLabel, onRequestSort, numSelecte
         )}
       </TableRow>
     </TableHead>
-  );
-};
+  )
+}
 
-export default KeywordTableHead;
+export default KeywordTableHead
 
 KeywordTableHead.propTypes = {
   order: PropTypes.oneOf(['asc', 'desc']),
@@ -78,4 +95,4 @@ KeywordTableHead.propTypes = {
   numSelected: PropTypes.number,
   rowCount: PropTypes.number,
   onSelectAllClick: PropTypes.func
-};
+}
