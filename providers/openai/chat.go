@@ -251,8 +251,13 @@ func otherProcessing(request *types.ChatCompletionRequest, otherArg string) {
 		if request.Model != "gpt-5-chat-latest" {
 			request.Temperature = nil
 		}
-		if otherArg != "" {
+		// 只有当 otherArg 不为空且没有已存在的 Reasoning 设置时，才使用 otherArg 设置 ReasoningEffort
+		if otherArg != "" && request.Reasoning == nil {
 			request.ReasoningEffort = &otherArg
+		}
+		// 如果有 Reasoning 设置，优先使用 Reasoning.Effort 设置 ReasoningEffort
+		if request.Reasoning != nil && request.Reasoning.Effort != "" {
+			request.ReasoningEffort = &request.Reasoning.Effort
 		}
 	}
 }

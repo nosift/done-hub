@@ -142,6 +142,21 @@ func (r *OpenAIResponsesRequest) ToChatCompletionRequest() (*ChatCompletionReque
 		}
 	}
 
+	// 处理 reasoning 参数转换
+	if r.Reasoning != nil {
+		chat.Reasoning = &ChatReasoning{}
+
+		// 转换 effort 字段（从指针类型转换为字符串类型）
+		if r.Reasoning.Effort != nil {
+			chat.Reasoning.Effort = *r.Reasoning.Effort
+		}
+
+		// 转换 summary 字段
+		if r.Reasoning.Summary != nil {
+			chat.Reasoning.Summary = r.Reasoning.Summary
+		}
+	}
+
 	var err error
 	chat.Messages, err = r.InputToMessages()
 	if err != nil {
