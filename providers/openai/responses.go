@@ -8,6 +8,7 @@ import (
 	"done-hub/common/utils"
 	"done-hub/types"
 	"encoding/json"
+	"io"
 	"strings"
 )
 
@@ -132,13 +133,21 @@ func (h *OpenAIResponsesStreamHandler) HandlerResponsesStream(rawLine *[]byte, d
 				h.Usage.IncExtraBilling(types.APITollTypeFileSearch, "")
 			}
 		}
-	default:
+	case "response.completed", "response.failed", "response.incomplete":
+		// 处理流结束事件 - 先处理usage，再结束流
 		if openaiResponse.Response != nil && openaiResponse.Response.Usage != nil {
 			usage := openaiResponse.Response.Usage
 			*h.Usage = *usage.ToOpenAIUsage()
 			getResponsesExtraBilling(openaiResponse.Response, h.Usage)
-
 		}
+		// 发送最后的数据
+		dataChan <- rawStr
+		// 发送EOF信号结束流
+		errChan <- io.EOF
+		*rawLine = requester.StreamClosed
+		return
+	default:
+		// 对于其他事件类型，不处理usage（usage只在结束事件中处理）
 	}
 
 	dataChan <- rawStr
