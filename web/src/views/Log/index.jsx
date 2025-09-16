@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { showError, trims, useIsAdmin } from 'utils/common'
+import { showError, showSuccess, trims, useIsAdmin } from 'utils/common'
 
 import Table from '@mui/material/Table'
 import TableBody from '@mui/material/TableBody'
@@ -214,6 +214,82 @@ export default function Log() {
     setRefreshFlag(!refreshFlag)
   }
 
+  // 导出状态
+  const [exporting, setExporting] = useState(false)
+
+  // 处理导出
+  const handleExport = useCallback(async () => {
+    if (exporting) return // 防止重复点击
+
+    setExporting(true)
+    try {
+      const exportKeyword = trims(searchKeyword)
+
+      // 移除仅用于触发状态更新的时间戳字段
+      if (exportKeyword._timestamp) {
+        delete exportKeyword._timestamp
+      }
+
+      let orderBy_export = orderBy
+      if (orderBy_export) {
+        orderBy_export = order === 'desc' ? '-' + orderBy_export : orderBy_export
+      }
+
+      const url = userIsAdmin ? '/api/log/export' : '/api/log/self/export'
+      const params = {
+        order: orderBy_export,
+        ...exportKeyword
+      }
+
+      if (!userIsAdmin) {
+        delete params.username
+        delete params.channel_id
+      }
+
+      // 使用fetch进行同步请求，提供更好的错误处理
+      const queryString = new URLSearchParams(params).toString()
+      const downloadUrl = `${url}?${queryString}`
+
+      const response = await fetch(downloadUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': localStorage.getItem('token') ? `Bearer ${localStorage.getItem('token')}` : ''
+        }
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      // 获取文件名
+      const contentDisposition = response.headers.get('Content-Disposition')
+      let filename = `logs_export_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename=(.+)/)
+        if (filenameMatch) {
+          filename = filenameMatch[1]
+        }
+      }
+
+      // 创建blob并下载
+      const blob = await response.blob()
+      const link = document.createElement('a')
+      link.href = window.URL.createObjectURL(blob)
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(link.href)
+
+      showSuccess(t('logPage.exportSuccess'))
+    } catch (error) {
+      console.error('Export error:', error)
+      showError(t('logPage.exportError') + ': ' + error.message)
+    } finally {
+      setExporting(false)
+    }
+  }, [searchKeyword, order, orderBy, userIsAdmin, t, exporting])
+
   useEffect(() => {
     fetchData(page, rowsPerPage, searchKeyword, order, orderBy)
   }, [page, rowsPerPage, searchKeyword, order, orderBy, fetchData, refreshFlag])
@@ -303,7 +379,37 @@ export default function Log() {
                     })
                   }}
                 >
-                  {searching ? '搜索中...' : t('logPage.searchButton')}
+                  {searching ? t('logPage.searching') : t('logPage.searchButton')}
+                </Button>
+
+                <Button
+                  onClick={exporting ? undefined : handleExport}
+                  size="small"
+                  startIcon={
+                    exporting ? (
+                      <Icon
+                        icon="solar:refresh-bold-duotone"
+                        width={18}
+                        style={{
+                          animation: 'spin 1s linear infinite',
+                          color: '#1976d2'
+                        }}
+                      />
+                    ) : (
+                      <Icon icon="solar:download-bold-duotone" width={18}/>
+                    )
+                  }
+                  sx={{
+                    ...(exporting && {
+                      bgcolor: 'action.hover',
+                      color: 'primary.main',
+                      '&:hover': {
+                        bgcolor: 'action.selected'
+                      }
+                    })
+                  }}
+                >
+                  {exporting ? t('logPage.exporting') : t('logPage.exportButton')}
                 </Button>
 
                 <Button onClick={handleColumnMenuOpen} size="small"
@@ -343,6 +449,29 @@ export default function Log() {
                     />
                   ) : (
                     <Icon icon="solar:minimalistic-magnifer-line-duotone" width={18}/>
+                  )}
+                </IconButton>
+                <IconButton
+                  onClick={exporting ? undefined : handleExport}
+                  size="small"
+                  sx={{
+                    ...(exporting && {
+                      bgcolor: 'action.hover',
+                      color: 'primary.main'
+                    })
+                  }}
+                >
+                  {exporting ? (
+                    <Icon
+                      icon="solar:refresh-bold-duotone"
+                      width={18}
+                      style={{
+                        animation: 'spin 1s linear infinite',
+                        color: '#1976d2'
+                      }}
+                    />
+                  ) : (
+                    <Icon icon="solar:download-bold-duotone" width={18}/>
                   )}
                 </IconButton>
                 <IconButton onClick={handleColumnMenuOpen} size="small">

@@ -203,13 +203,17 @@ func SetApiRouter(router *gin.Engine) {
 			redemptionRoute.DELETE("/:id", controller.DeleteRedemption)
 		}
 		logRoute := apiRouter.Group("/log")
-		logRoute.GET("/", middleware.AdminAuth(), controller.GetLogsList)
-		logRoute.DELETE("/", middleware.AdminAuth(), controller.DeleteHistoryLogs)
-		logRoute.GET("/stat", middleware.AdminAuth(), controller.GetLogsStat)
-		logRoute.GET("/self/stat", middleware.UserAuth(), controller.GetLogsSelfStat)
-		// logRoute.GET("/search", middleware.AdminAuth(), controller.SearchAllLogs)
-		logRoute.GET("/self", middleware.UserAuth(), controller.GetUserLogsList)
-		// logRoute.GET("/self/search", middleware.UserAuth(), controller.SearchUserLogs)
+		{
+			logRoute.GET("/", middleware.AdminAuth(), controller.GetLogsList)
+			logRoute.GET("/export", middleware.AdminAuth(), controller.ExportLogsList)
+			logRoute.DELETE("/", middleware.AdminAuth(), controller.DeleteHistoryLogs)
+			logRoute.GET("/stat", middleware.AdminAuth(), controller.GetLogsStat)
+			logRoute.GET("/self/stat", middleware.UserAuth(), controller.GetLogsSelfStat)
+			// logRoute.GET("/search", middleware.AdminAuth(), controller.SearchAllLogs)
+			logRoute.GET("/self", middleware.UserAuth(), controller.GetUserLogsList)
+			logRoute.GET("/self/export", middleware.UserAuth(), controller.ExportUserLogsList)
+			// logRoute.GET("/self/search", middleware.UserAuth(), controller.SearchUserLogs)
+		}
 		groupRoute := apiRouter.Group("/group")
 		groupRoute.Use(middleware.AdminAuth())
 		{
