@@ -14,8 +14,8 @@ import (
 
 type Log struct {
 	Id               int                                `json:"id"`
-	UserId           int                                `json:"user_id" gorm:"index"`
-	CreatedAt        int64                              `json:"created_at" gorm:"bigint;index:idx_created_at_type"`
+	UserId           int                                `json:"user_id" gorm:"index;index:idx_user_created_at"`
+	CreatedAt        int64                              `json:"created_at" gorm:"bigint;index:idx_created_at_type;index:idx_user_created_at"`
 	Type             int                                `json:"type" gorm:"index:idx_created_at_type"`
 	Content          string                             `json:"content"`
 	Username         string                             `json:"username" gorm:"index:index_username_model_name,priority:2;default:''"`
