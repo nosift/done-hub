@@ -192,12 +192,45 @@ const SystemSetting = () => {
     }
   }
 
+  const updateOptionWithoutRefresh = async(key, value) => {
+    setLoading(true)
+    try {
+      const res = await API.put('/api/option/', {
+        key,
+        value
+      })
+      const { success, message } = res.data
+      if (success) {
+        if (key === 'EmailDomainWhitelist') {
+          value = value.split(',')
+        }
+        setInputs((inputs) => ({
+          ...inputs,
+          [key]: value
+        }))
+        // 不调用getOptions()避免闪烁
+        return true
+      } else {
+        showError(message)
+        return false
+      }
+    } catch (error) {
+      showError('更新失败')
+      return false
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const submitSystemSettings = async() => {
     let ServerAddress = removeTrailingSlash(inputs.ServerAddress)
-    await updateOption('ServerAddress', ServerAddress)
+    const success1 = await updateOptionWithoutRefresh('ServerAddress', ServerAddress)
+    const success2 = await updateOptionWithoutRefresh('PaymentCallbackAddress', inputs.PaymentCallbackAddress || '')
 
-    // 直接保存用户输入的支付回调地址，即使为空
-    await updateOption('PaymentCallbackAddress', inputs.PaymentCallbackAddress || '')
+    if (success1 && success2) {
+      await loadStatus()
+      showSuccess('设置成功！')
+    }
   }
 
   const submitSMTP = async() => {
