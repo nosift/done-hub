@@ -119,7 +119,7 @@ func (r *relayVeoOnly) send() (err *types.OpenAIErrorWithStatusCode, done bool) 
 	// 重要：使用同一个 geminiProvider 实例，确保整个流程使用相同的 API Key
 	videoData, contentType, errWithCode := geminiProvider.CreateVeoVideoAndDownload(r.veoRequest, r.modelName)
 	if errWithCode != nil {
-		return errWithCode, true
+		return errWithCode, false
 	}
 
 	if r.heartbeat != nil {

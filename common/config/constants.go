@@ -12,6 +12,7 @@ var Commit = "unknown"
 var BuildTime = "unknown"
 var SystemName = "Done Hub"
 var ServerAddress = "http://localhost:3000"
+var PaymentCallbackAddress = ""
 var Debug = false
 
 var OldTokenMaxId = 0

@@ -51,6 +51,7 @@ const SystemSetting = () => {
     SMTPFrom: '',
     SMTPToken: '',
     ServerAddress: '',
+    PaymentCallbackAddress: '',
     Footer: '',
     WeChatAuthEnabled: '',
     WeChatServerAddress: '',
@@ -165,6 +166,7 @@ const SystemSetting = () => {
       name === 'Notice' ||
       name.startsWith('SMTP') ||
       name === 'ServerAddress' ||
+      name === 'PaymentCallbackAddress' ||
       name === 'GitHubClientId' ||
       name === 'GitHubClientSecret' ||
       name === 'OIDCClientId' ||
@@ -190,9 +192,12 @@ const SystemSetting = () => {
     }
   }
 
-  const submitServerAddress = async() => {
+  const submitSystemSettings = async() => {
     let ServerAddress = removeTrailingSlash(inputs.ServerAddress)
     await updateOption('ServerAddress', ServerAddress)
+
+    // 直接保存用户输入的支付回调地址，即使为空
+    await updateOption('PaymentCallbackAddress', inputs.PaymentCallbackAddress || '')
   }
 
   const submitSMTP = async() => {
@@ -312,8 +317,22 @@ const SystemSetting = () => {
               </FormControl>
             </Grid>
             <Grid xs={12}>
-              <Button variant="contained" onClick={submitServerAddress}>
-                {t('setting_index.systemSettings.generalSettings.updateServerAddress')}
+              <FormControl fullWidth>
+                <InputLabel htmlFor="PaymentCallbackAddress">支付回调地址</InputLabel>
+                <OutlinedInput
+                  id="PaymentCallbackAddress"
+                  name="PaymentCallbackAddress"
+                  value={inputs.PaymentCallbackAddress || ''}
+                  onChange={handleInputChange}
+                  label="支付回调地址"
+                  placeholder="为空时默认使用服务器地址"
+                  disabled={loading}
+                />
+              </FormControl>
+            </Grid>
+            <Grid xs={12}>
+              <Button variant="contained" onClick={submitSystemSettings}>
+                更新系统设置
               </Button>
             </Grid>
           </Grid>
