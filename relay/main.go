@@ -126,7 +126,7 @@ func Relay(c *gin.Context) {
 		apiErr, done = RelayHandler(relay)
 		if apiErr == nil {
 			// 重试成功
-			logger.LogError(c.Request.Context(), fmt.Sprintf("retry_success attempt=%d/%d channel_id=%d final_channel=\"%s\"",
+			logger.LogInfo(c.Request.Context(), fmt.Sprintf("retry_success attempt=%d/%d channel_id=%d final_channel=\"%s\"",
 				attemptCount, actualRetryTimes, channel.Id, channel.Name))
 			metrics.RecordProvider(c, 200)
 			return
