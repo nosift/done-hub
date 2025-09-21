@@ -9,6 +9,7 @@ import (
 	"done-hub/types"
 	"fmt"
 	"net/http"
+	"regexp"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
@@ -17,6 +18,9 @@ import (
 )
 
 var disableGroup singleflight.Group
+
+// 正则表达式匹配特定的文件访问权限错误，这类错误不应该禁用渠道
+var fileAccessPermissionRegex = regexp.MustCompile(`You do not have permission to access the File .+ or it may not exist\.`)
 
 func shouldEnableChannel(err error, openAIErr *types.OpenAIErrorWithStatusCode) bool {
 	if !config.AutomaticEnableChannelEnabled {
@@ -33,6 +37,11 @@ func shouldEnableChannel(err error, openAIErr *types.OpenAIErrorWithStatusCode) 
 
 func ShouldDisableChannel(channelType int, err *types.OpenAIErrorWithStatusCode) bool {
 	if !config.AutomaticDisableChannelEnabled || err == nil || err.LocalError {
+		return false
+	}
+
+	// 检查是否为特定的文件访问权限错误，这类错误不应该禁用渠道
+	if fileAccessPermissionRegex.MatchString(err.OpenAIError.Message) {
 		return false
 	}
 
