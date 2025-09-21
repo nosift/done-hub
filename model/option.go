@@ -101,6 +101,7 @@ func InitOptionMap() {
 	config.GlobalOption.RegisterInt("RetryCooldownSeconds", &config.RetryCooldownSeconds)
 
 	config.GlobalOption.RegisterBool("MjNotifyEnabled", &config.MjNotifyEnabled)
+	config.GlobalOption.RegisterBool("BuiltinChatEnabled", &config.BuiltinChatEnabled)
 	config.GlobalOption.RegisterString("ChatImageRequestProxy", &config.ChatImageRequestProxy)
 	config.GlobalOption.RegisterFloat("PaymentUSDRate", &config.PaymentUSDRate)
 	config.GlobalOption.RegisterInt("PaymentMinAmount", &config.PaymentMinAmount)

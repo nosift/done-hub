@@ -131,6 +131,9 @@ var SafeKeyWords = []string{
 // mj
 var MjNotifyEnabled = false
 
+// 内置聊天功能开关
+var BuiltinChatEnabled = true
+
 var EmailDomainRestrictionEnabled = false
 var EmailDomainWhitelist = []string{
 	"gmail.com",

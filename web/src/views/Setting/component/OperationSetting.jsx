@@ -44,6 +44,7 @@ const OperationSetting = () => {
     TopUpLink: '',
     ChatLink: '',
     ChatLinks: '',
+    BuiltinChatEnabled: 'true',
     QuotaPerUnit: 0,
     AutomaticDisableChannelEnabled: 'false',
     AutomaticEnableChannelEnabled: 'false',
@@ -213,6 +214,9 @@ const OperationSetting = () => {
               return
             }
             await updateOption('ChatLinks', inputs.ChatLinks)
+          }
+          if (originInputs['BuiltinChatEnabled'] !== inputs.BuiltinChatEnabled) {
+            await updateOption('BuiltinChatEnabled', inputs.BuiltinChatEnabled)
           }
           break
         case 'quota':
@@ -1068,6 +1072,18 @@ const OperationSetting = () => {
             <div dangerouslySetInnerHTML={{ __html: t('setting_index.operationSettings.chatLinkSettings.info') }}/>
           </Alert>
           <Stack justifyContent="flex-start" alignItems="flex-start" spacing={2}>
+            <FormControlLabel
+              sx={{ marginLeft: '0px' }}
+              label={t('setting_index.operationSettings.chatLinkSettings.builtinChatEnabled')}
+              control={
+                <Checkbox
+                  checked={dataLoaded ? inputs.BuiltinChatEnabled === 'true' : false}
+                  onChange={handleInputChange}
+                  name="BuiltinChatEnabled"
+                  disabled={!dataLoaded || loading}
+                />
+              }
+            />
             <ChatLinksDataGrid links={inputs.ChatLinks || '[]'} onChange={handleInputChange}/>
 
             <Button

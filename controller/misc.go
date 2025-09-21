@@ -49,6 +49,7 @@ func GetStatus(c *gin.Context) {
 			"display_in_currency":  config.DisplayInCurrencyEnabled,
 			"telegram_bot":         telegramBot,
 			"mj_notify_enabled":    config.MjNotifyEnabled,
+			"builtin_chat_enabled": config.BuiltinChatEnabled,
 			"chat_links":           config.ChatLinks,
 			"PaymentUSDRate":       config.PaymentUSDRate,
 			"PaymentMinAmount":     config.PaymentMinAmount,
