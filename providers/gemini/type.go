@@ -440,7 +440,12 @@ type GeminiChatGenerationConfig struct {
 	ResponseMimeType   string          `json:"responseMimeType,omitempty"`
 	ResponseSchema     any             `json:"responseSchema,omitempty"`
 	ResponseModalities []string        `json:"responseModalities,omitempty"`
+	ImageConfig        *ImageConfig    `json:"imageConfig,omitempty"` // 图像生成配置
 	ThinkingConfig     *ThinkingConfig `json:"thinkingConfig,omitempty"`
+}
+
+type ImageConfig struct {
+	AspectRatio string `json:"aspectRatio,omitempty"` // 图像宽高比，如 "16:9", "1:1", "9:16" 等
 }
 
 type ThinkingConfig struct {
