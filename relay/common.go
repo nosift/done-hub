@@ -64,7 +64,54 @@ func Path2Relay(c *gin.Context, path string) RelayBaseInterface {
 	return relay
 }
 
+func CheckLimitModel(c *gin.Context, modelName string) error {
+	// 判断modelName是否在token的setting.limits.models[]范围内
+
+	// 从context中获取token设置
+	tokenSetting, exists := c.Get("token_setting")
+	if !exists {
+		// 如果没有token设置，则不进行限制
+		return nil
+	}
+
+	// 类型断言为TokenSetting指针
+	setting, ok := tokenSetting.(*model.TokenSetting)
+	if !ok || setting == nil {
+		// 类型断言失败或为空，不进行限制
+		return nil
+	}
+
+	// 检查是否启用了模型限制
+	if !setting.Limits.Enabled {
+		// 未启用模型限制，允许所有模型
+		return nil
+	}
+
+	// 检查模型列表是否为空
+	if len(setting.Limits.Models) == 0 {
+		// 模型列表为空，不允许任何模型
+		return errors.New("当前令牌未配置可用模型")
+	}
+
+	// 检查modelName是否在允许的模型列表中
+	for _, allowedModel := range setting.Limits.Models {
+		if allowedModel == modelName {
+			// 找到匹配的模型，允许使用
+			return nil
+		}
+	}
+
+	// modelName不在允许的模型列表中
+	return fmt.Errorf("当前令牌不支持模型: %s", modelName)
+}
+
 func GetProvider(c *gin.Context, modelName string) (provider providersBase.ProviderInterface, newModelName string, fail error) {
+	// 检查令牌模型限制
+	err := CheckLimitModel(c, modelName)
+	if err != nil {
+		return nil, "", err
+	}
+
 	// 首先尝试获取匹配的模型名称（处理大小写不敏感）
 	groupName := c.GetString("token_group")
 	if groupName == "" {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useSelector } from 'react-redux';
 import { Link } from 'react-router-dom';
 
@@ -30,7 +30,6 @@ import useLogin from 'hooks/useLogin';
 import AnimateButton from 'ui-component/extended/AnimateButton';
 import WechatModal from 'views/Authentication/AuthForms/WechatModal';
 
-
 // assets
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
@@ -40,9 +39,9 @@ import Wechat from 'assets/images/icons/wechat.svg';
 import Lark from 'assets/images/icons/lark.svg';
 import Oidc from 'assets/images/icons/oidc.svg';
 import LinuxDoIcon from 'assets/images/icons/LinuxDoIcon';
-import { onGitHubOAuthClicked, onLarkOAuthClicked,onOIDCAuthClicked, onLinuxDoOAuthClicked } from 'utils/common';
+import { onGitHubOAuthClicked, onLarkOAuthClicked, onLinuxDoOAuthClicked, onOIDCAuthClicked, onWebAuthnClicked } from 'utils/common';
+import Webauthn from 'assets/images/icons/webauthn.svg';
 import { useTranslation } from 'react-i18next';
-
 
 // ============================|| FIREBASE - LOGIN ||============================ //
 
@@ -61,8 +60,6 @@ const LoginForm = ({ ...others }) => {
   if (siteInfo.github_oauth || siteInfo.wechat_login || siteInfo.lark_client_id || siteInfo.oidc_auth || siteInfo.linuxDo_oauth) {
     tripartiteLogin = true;
   }
-
-
 
   const handleWechatOpen = () => {
     setOpenWechat(true);
@@ -98,8 +95,6 @@ const LoginForm = ({ ...others }) => {
         break;
     }
   };
-
-
 
   const [showPassword, setShowPassword] = useState(false);
   const handleClickShowPassword = () => {
@@ -214,11 +209,7 @@ const LoginForm = ({ ...others }) => {
                   }}
                 >
                   <Box sx={{ mr: { xs: 1, sm: 2 }, display: 'flex', alignItems: 'center', minWidth: 25 }}>
-                    <LinuxDoIcon
-                      size={25}
-                      variant="login"
-                      style={{ marginRight: matchDownSM ? 8 : 16 }}
-                    />
+                    <LinuxDoIcon size={25} variant="login" style={{ marginRight: matchDownSM ? 8 : 16 }} />
                   </Box>
                   {t('login.useLinuxDoLogin')}
                 </Button>
@@ -281,7 +272,7 @@ const LoginForm = ({ ...others }) => {
           setSubmitting(false);
         }}
       >
-        {({ errors, handleBlur, handleChange, handleSubmit, isSubmitting, touched, values }) => (
+        {({ errors, handleBlur, handleChange, handleSubmit, isSubmitting, touched, values, setErrors, setStatus }) => (
           <form noValidate onSubmit={handleSubmit} {...others}>
             <FormControl fullWidth error={Boolean(touched.username && errors.username)} sx={{ ...theme.typography.customInput }}>
               <InputLabel htmlFor="outlined-adornment-username-login">{t('login.usernameOrEmail')}</InputLabel>
@@ -365,11 +356,36 @@ const LoginForm = ({ ...others }) => {
                 </Button>
               </AnimateButton>
             </Box>
+
+            <Box sx={{ mt: 2 }}>
+              <AnimateButton>
+                <Button
+                  disableElevation
+                  fullWidth
+                  onClick={() =>
+                    onWebAuthnClicked(
+                      values.username,
+                      (msg) => setErrors({ submit: msg }),
+                      (msg) => setStatus({ success: true, message: msg }),
+                      () => {}
+                    )
+                  }
+                  size="large"
+                  variant="outlined"
+                  sx={{
+                    ...theme.typography.LoginButton
+                  }}
+                >
+                  <Box sx={{ mr: { xs: 1, sm: 2, width: 20 }, display: 'flex', alignItems: 'center' }}>
+                    <img src={Webauthn} alt="WebAuthn" width={25} height={25} style={{ marginRight: matchDownSM ? 8 : 16 }} />
+                  </Box>
+                  WebAuthn
+                </Button>
+              </AnimateButton>
+            </Box>
           </form>
         )}
       </Formik>
-
-
     </>
   );
 };
