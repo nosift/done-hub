@@ -104,12 +104,13 @@ func (p *ClaudeProvider) getChatRequest(claudeRequest *ClaudeRequest) (*http.Req
 		headers["Accept"] = "text/event-stream"
 	}
 
-	if model_utils.HasPrefixCaseInsensitive(claudeRequest.Model, "claude-3-5-sonnet") {
-		headers["anthropic-beta"] = "max-tokens-3-5-sonnet-2024-07-15"
-	}
-
-	if model_utils.HasPrefixCaseInsensitive(claudeRequest.Model, "claude-3-7-sonnet") {
-		headers["anthropic-beta"] = "output-128k-2025-02-19"
+	// 只在用户没有自定义 anthropic-beta 时才设置默认值
+	if _, exists := headers["anthropic-beta"]; !exists {
+		if model_utils.HasPrefixCaseInsensitive(claudeRequest.Model, "claude-3-5-sonnet") {
+			headers["anthropic-beta"] = "max-tokens-3-5-sonnet-2024-07-15"
+		} else if model_utils.HasPrefixCaseInsensitive(claudeRequest.Model, "claude-3-7-sonnet") {
+			headers["anthropic-beta"] = "output-128k-2025-02-19"
+		}
 	}
 
 	// 使用BaseProvider的统一方法创建请求，支持额外参数处理
