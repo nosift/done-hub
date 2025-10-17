@@ -36,6 +36,7 @@ _This project is a secondary development based on [one-hub](https://github.com/M
 - Supports **removing specified parameters** from channel extra parameters
 - Supports **model variable substitution** in channel `BaseURL`
 - Supports **pass-through of extra parameters** for native `/gemini` image generation requests
+- Supports **pass-through of extra parameters** for `Claude` channels (both OpenAI format and native format)
 - Supports **custom channels** using native `Claude` routing - integrating `ClaudeCode`
 - Supports `VertexAI` channels using native `Gemini` routing - integrating `GeminiCli`
 - Supports `VertexAI` channels using native `Claude` routing - integrating `ClaudeCode`
