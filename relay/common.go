@@ -547,6 +547,33 @@ func FilterOpenAIErr(c *gin.Context, err *types.OpenAIErrorWithStatusCode) (errW
 		}
 	}
 
+	channelType := c.GetInt("channel_type")
+	if channelType == config.ChannelTypeGeminiCli && !newErr.LocalError {
+		if newErr.OpenAIError.Type == "geminicli_error" || newErr.OpenAIError.Type == "geminicli_token_error" {
+			if newErr.StatusCode == http.StatusUnauthorized || newErr.StatusCode == http.StatusForbidden {
+				if cachedErr, exists := c.Get("first_non_auth_error"); exists {
+					if firstErr, ok := cachedErr.(*types.OpenAIErrorWithStatusCode); ok {
+						newErr = *firstErr
+						if newErr.OpenAIError.Type == "geminicli_error" {
+							newErr.OpenAIError.Type = "system_error"
+						}
+						newErr.OpenAIError.Message = utils.MessageWithRequestId(newErr.OpenAIError.Message, requestId)
+						return newErr
+					}
+				}
+				if newErr.StatusCode == http.StatusUnauthorized {
+					newErr.OpenAIError.Type = "authentication_error"
+				} else {
+					newErr.OpenAIError.Type = "access_denied"
+				}
+				newErr.OpenAIError.Message = utils.MessageWithRequestId("上游负载已饱和，请稍后再试", requestId)
+				newErr.StatusCode = http.StatusTooManyRequests
+			} else {
+				newErr.OpenAIError.Type = "system_error"
+			}
+		}
+	}
+
 	if code, ok := newErr.OpenAIError.Code.(string); ok && code == "bad_response_status_code" && !strings.Contains(newErr.OpenAIError.Message, "bad response status code") {
 		newErr.OpenAIError.Message = fmt.Sprintf("Provider API error: bad response status code %s", newErr.OpenAIError.Param)
 	}

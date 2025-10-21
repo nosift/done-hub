@@ -92,7 +92,7 @@ func (p *GeminiCliProvider) getChatRequest(geminiRequest *gemini.GeminiChatReque
 	// 获取请求头
 	headers, err := p.getRequestHeadersInternal()
 	if err != nil {
-		return nil, common.StringErrorWrapperLocal(err.Error(), "geminicli_token_error", http.StatusInternalServerError)
+		return nil, common.StringErrorWrapper(err.Error(), "geminicli_token_error", http.StatusUnauthorized)
 	}
 
 	// 构建内部API请求体
