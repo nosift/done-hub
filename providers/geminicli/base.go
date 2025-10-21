@@ -20,7 +20,7 @@ import (
 
 const TokenCacheKey = "api_token:geminicli"
 
-// OAuth2 配置常量（与 gcli2api 保持一致）
+// OAuth2 配置常量
 const (
 	DefaultClientID     = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"
 	DefaultClientSecret = "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"
