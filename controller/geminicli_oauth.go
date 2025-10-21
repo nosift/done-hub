@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"done-hub/common"
 	"done-hub/common/cache"
-	"done-hub/common/config"
 	"done-hub/common/logger"
 	"done-hub/providers/geminicli"
 	"encoding/base64"
@@ -79,8 +78,7 @@ func StartGeminiCliOAuth(c *gin.Context) {
 	cache.SetCache(cacheKey, stateData, OAuthStateCacheDuration)
 
 	// 构建 OAuth 授权 URL
-	// 使用配置的服务器地址作为回调 URL
-	redirectURI := fmt.Sprintf("%s/api/geminicli/oauth/callback", strings.TrimSuffix(config.ServerAddress, "/"))
+	redirectURI := "http://localhost:8080/api/geminicli/oauth/callback"
 
 	params := url.Values{}
 	params.Set("client_id", geminicli.DefaultClientID)
@@ -195,7 +193,7 @@ func GeminiCliOAuthCallback(c *gin.Context) {
 	cache.DeleteCache(cacheKey)
 
 	// 使用 code 交换 token
-	redirectURI := fmt.Sprintf("%s/api/geminicli/oauth/callback", strings.TrimSuffix(config.ServerAddress, "/"))
+	redirectURI := "http://localhost:8080/api/geminicli/oauth/callback"
 
 	tokenResp, err := exchangeCodeForToken(code, redirectURI)
 	if err != nil {
