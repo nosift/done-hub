@@ -15,7 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var AllowGeminiChannelType = []int{config.ChannelTypeGemini, config.ChannelTypeVertexAI}
+var AllowGeminiChannelType = []int{config.ChannelTypeGemini, config.ChannelTypeVertexAI, config.ChannelTypeGeminiCli}
 
 type relayGeminiOnly struct {
 	relayBase

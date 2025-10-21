@@ -179,6 +179,14 @@ func SetApiRouter(router *gin.Engine) {
 			channelRoute.PUT("/batch/del_model", controller.BatchDelModelChannels)
 			channelRoute.PUT("/batch/add_model", controller.BatchAddModelToChannels)
 			channelRoute.PUT("/batch/add_user_group", controller.BatchAddUserGroupToChannels)
+		}
+
+		// GeminiCli OAuth routes (no auth required for callback)
+		geminiCliRoute := apiRouter.Group("/geminicli")
+		{
+			geminiCliRoute.POST("/oauth/start", middleware.AdminAuth(), controller.StartGeminiCliOAuth)
+			geminiCliRoute.GET("/oauth/callback", controller.GeminiCliOAuthCallback)
+			geminiCliRoute.GET("/oauth/status/:state", middleware.AdminAuth(), controller.GetGeminiCliOAuthStatus)
 			channelRoute.DELETE("/disabled", controller.DeleteDisabledChannel)
 			channelRoute.DELETE("/:id/tag", controller.DeleteChannelTag)
 			channelRoute.DELETE("/:id", controller.DeleteChannel)

@@ -91,9 +91,38 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
   const [tempFormikValues, setTempFormikValues] = useState(null);
   const [tempSetFieldValue, setTempSetFieldValue] = useState(null);
-  
+
   // 用于追踪模型的原始名称映射关系 { displayName: originalName }
   const [modelOriginalMapping, setModelOriginalMapping] = useState({});
+
+  // GeminiCli OAuth 相关状态
+  const [oauthLoading, setOauthLoading] = useState(false);
+  const [oauthWindow, setOauthWindow] = useState(null);
+  const [oauthState, setOauthState] = useState(null);
+  const [oauthURL, setOauthURL] = useState('');
+  const oauthHandledRef = useRef(false); // 用于防止重复处理
+  const pollingIntervalRef = useRef(null); // 使用 ref 存储 interval ID
+
+  // 清理 OAuth 相关资源
+  const cleanupOAuth = () => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+    if (oauthWindow && !oauthWindow.closed) {
+      oauthWindow.close();
+    }
+    setOauthWindow(null);
+    setOauthLoading(false);
+    setOauthState(null);
+    oauthHandledRef.current = false;
+  };
+
+  // 包装 onCancel，添加清理逻辑
+  const handleCancel = () => {
+    cleanupOAuth();
+    onCancel();
+  };
 
   const initChannel = (typeValue) => {
     if (typeConfig[typeValue]?.inputLabel) {
@@ -116,7 +145,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
     if (!mappingArray || !Array.isArray(mappingArray) || mappingArray.length === 0) {
       return null;
     }
-    
+
     try {
       const mapping = mappingArray.reduce((acc, item) => {
         if (item.key && item.value) {
@@ -124,7 +153,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
         }
         return acc;
       }, {});
-      
+
       if (Object.keys(mapping).length === 0) {
         return null;
       }
@@ -138,7 +167,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
   // 更新模型列表的统一方法
   const updateModelsList = (newModels, newMapping, setFieldValue) => {
     const uniqueModels = Array.from(new Set(newModels.filter(model => model && model.id && model.id.trim())));
-    
+
     setFieldValue('models', uniqueModels);
     setModelOriginalMapping(newMapping);
   };
@@ -152,12 +181,12 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
         id: originalName
       };
     });
-    
+
     // 检查是否有变化
     const hasChanges = currentModels.some((model, index) => {
       return model.id !== restoredModels[index].id;
     });
-    
+
     if (hasChanges) {
       updateModelsList(restoredModels, {}, setFieldValue);
     }
@@ -225,21 +254,237 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
   // 实时同步模型重定向到模型配置的函数
   const syncModelMappingToModels = (mappingArray, currentModels, setFieldValue) => {
     const mapping = parseModelMapping(mappingArray);
-    
+
     if (!mapping) {
       restoreModelsToOriginalNames(currentModels, setFieldValue);
       return;
     }
 
     const { updatedModels, newMapping, hasChanges } = applyModelMapping(
-      mapping, 
-      currentModels, 
+      mapping,
+      currentModels,
       modelOriginalMapping,
       setFieldValue
     );
 
     if (hasChanges) {
       updateModelsList(updatedModels, newMapping, setFieldValue);
+    }
+  };
+
+  // 轮询 OAuth 状态
+  const pollOAuthStatus = async (state, setFieldValue, messageHandlerRef) => {
+    try {
+      // 最早检查：如果已经处理过，立即返回，不做任何操作
+      if (oauthHandledRef.current) {
+        return true;
+      }
+
+      const res = await API.get(`/api/geminicli/oauth/status/${state}`);
+
+      if (!res.data.success) {
+        return false;
+      }
+
+      if (res.data.status === 'completed') {
+        // 再次检查，防止竞态条件
+        if (oauthHandledRef.current) {
+          return true;
+        }
+
+        // 立即设置标志，防止其他路径重复处理
+        oauthHandledRef.current = true;
+
+        // 立即停止轮询
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
+
+        // 移除 message 监听器
+        if (messageHandlerRef && messageHandlerRef.current) {
+          window.removeEventListener('message', messageHandlerRef.current);
+          messageHandlerRef.current = null;
+        }
+
+        // 更新状态
+        setOauthLoading(false);
+        setOauthState(null);
+
+        // 处理结果
+        if (res.data.result && res.data.credentials) {
+          setFieldValue('key', res.data.credentials);
+          showSuccess('OAuth 授权成功！凭证已自动填充');
+        } else {
+          showError(res.data.message || 'OAuth 授权失败');
+        }
+
+        // 关闭弹窗
+        if (oauthWindow && !oauthWindow.closed) {
+          oauthWindow.close();
+        }
+        setOauthWindow(null);
+
+        return true; // 已完成
+      }
+
+      return false; // 未完成
+    } catch (error) {
+      return false;
+    }
+  };
+
+  // 复制 OAuth 授权链接
+  const handleCopyOAuthURL = () => {
+    if (!oauthURL) {
+      showError('请先点击授权按钮生成授权链接');
+      return;
+    }
+    navigator.clipboard.writeText(oauthURL).then(() => {
+      showSuccess('授权链接已复制到剪贴板');
+    }).catch(() => {
+      showError('复制失败，请手动复制');
+    });
+  };
+
+  // GeminiCli OAuth 授权处理
+  const handleGeminiCliOAuth = async (projectId, setFieldValue) => {
+    if (!projectId || projectId.trim() === '') {
+      showError('请先填写 Project ID');
+      return;
+    }
+
+    try {
+      setOauthLoading(true);
+      oauthHandledRef.current = false; // 重置处理标志
+
+      // 调用后端 API 生成授权 URL
+      const res = await API.post('/api/geminicli/oauth/start', {
+        channel_id: channelId || 0,
+        project_id: projectId.trim()
+      });
+
+      if (!res.data.success) {
+        showError(res.data.message || 'OAuth 授权失败');
+        setOauthLoading(false);
+        return;
+      }
+
+      const authURL = res.data.auth_url;
+      const state = res.data.state;
+
+      setOauthState(state);
+      setOauthURL(authURL);
+
+      // 打开新窗口进行授权
+      const width = 600;
+      const height = 700;
+      const left = window.screen.width / 2 - width / 2;
+      const top = window.screen.height / 2 - height / 2;
+      const popup = window.open(
+        authURL,
+        'GeminiCli OAuth',
+        `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,location=no,status=no`
+      );
+
+      setOauthWindow(popup);
+
+      // 用于存储 message handler 的引用
+      const messageHandlerRef = { current: null };
+
+      // 监听来自 OAuth 窗口的消息（作为快速路径）
+      const handleMessage = (event) => {
+        // 安全检查：确保消息来自我们的域
+        if (event.data && event.data.type === 'geminicli_oauth_result') {
+          // 如果已经处理过，直接返回
+          if (oauthHandledRef.current) {
+            return;
+          }
+
+          // 立即设置标志
+          oauthHandledRef.current = true;
+
+          // 立即停止轮询
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+            pollingIntervalRef.current = null;
+          }
+
+          // 移除自己
+          window.removeEventListener('message', handleMessage);
+          messageHandlerRef.current = null;
+
+          // 处理结果
+          if (event.data.success && event.data.credentials) {
+            setFieldValue('key', event.data.credentials);
+            showSuccess('OAuth 授权成功！凭证已自动填充');
+          } else {
+            showError('OAuth 授权失败');
+          }
+
+          // 更新状态
+          setOauthLoading(false);
+          setOauthState(null);
+          setOauthWindow(null);
+
+          // 关闭弹窗
+          if (popup && !popup.closed) {
+            popup.close();
+          }
+        }
+      };
+
+      messageHandlerRef.current = handleMessage;
+      window.addEventListener('message', handleMessage);
+
+      // 开始轮询状态（每 2 秒查询一次）
+      const interval = setInterval(async () => {
+        const completed = await pollOAuthStatus(state, setFieldValue, messageHandlerRef);
+        if (completed) {
+          clearInterval(interval);
+          pollingIntervalRef.current = null;
+        }
+      }, 2000);
+
+      pollingIntervalRef.current = interval;
+
+      // 检测弹窗是否被关闭
+      const checkClosed = setInterval(() => {
+        if (popup && popup.closed) {
+          clearInterval(checkClosed);
+          // 不立即停止轮询，因为用户可能在其他浏览器完成授权
+          if (messageHandlerRef.current) {
+            window.removeEventListener('message', messageHandlerRef.current);
+            messageHandlerRef.current = null;
+          }
+        }
+      }, 500);
+
+      // 10 分钟后超时
+      setTimeout(() => {
+        // 检查是否已经处理过
+        if (oauthHandledRef.current) {
+          return;
+        }
+
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
+        if (messageHandlerRef.current) {
+          window.removeEventListener('message', messageHandlerRef.current);
+          messageHandlerRef.current = null;
+        }
+        if (oauthLoading) {
+          setOauthLoading(false);
+          setOauthState(null);
+          showError('OAuth 授权超时，请重试');
+        }
+      }, 10 * 60 * 1000);
+
+    } catch (error) {
+      showError('OAuth 授权失败: ' + (error.message || error));
+      setOauthLoading(false);
     }
   };
 
@@ -486,7 +731,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
               value
             }))
             : []
-            
+
         // 初始化模型原始映射关系
         const mapping = parseModelMapping(data.model_mapping);
         if (mapping) {
@@ -521,7 +766,6 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
             data.custom_parameter = JSON.stringify(parsedJson, null, 2)
           } catch (error) {
             // If parsing fails, keep the original string
-            console.log('Error parsing custom_parameter JSON:', error)
           }
         } else {
           data.custom_parameter = ''
@@ -558,13 +802,16 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
         // 重置模型原始映射关系
         setModelOriginalMapping({});
       }
+    } else {
+      // 关闭对话框时清理 OAuth 窗口和轮询
+      cleanupOAuth();
     }
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelId, open])
 
   return (
-    <Dialog open={open} onClose={onCancel} fullWidth maxWidth={'md'}>
+    <Dialog open={open} onClose={handleCancel} fullWidth maxWidth={'md'}>
       <DialogTitle
         sx={{ margin: '0px', fontWeight: 700, lineHeight: '1.55556', padding: '24px', fontSize: '1.125rem' }}>
         {channelId ? t('common.edit') : t('common.create')}
@@ -990,6 +1237,37 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
                     </FormHelperText>
                   )}
                 </FormControl>
+
+                {/* GeminiCli OAuth 授权按钮 */}
+                {values.type === 57 && !batchAdd && (
+                  <Box sx={{ mt: 2, mb: 2 }}>
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <Button
+                        variant="outlined"
+                        color="primary"
+                        fullWidth
+                        disabled={oauthLoading || !values.other}
+                        onClick={() => handleGeminiCliOAuth(values.other, setFieldValue)}
+                        startIcon={oauthLoading ? null : <Icon icon="mdi:google"/>}
+                      >
+                        {oauthLoading ? '授权中，请完成授权...' : 'OAuth 授权'}
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        color="secondary"
+                        disabled={!oauthURL}
+                        onClick={handleCopyOAuthURL}
+                        startIcon={<Icon icon="mdi:content-copy"/>}
+                        sx={{ minWidth: '120px' }}
+                      >
+                        复制链接
+                      </Button>
+                    </Box>
+                    <FormHelperText sx={{ textAlign: 'center', mt: 1 }}>
+                      点击"OAuth 授权"将打开新窗口进行 Google 授权。您也可以点击"复制链接"在其他浏览器中打开，授权成功后凭证将自动填充
+                    </FormHelperText>
+                  </Box>
+                )}
 
                 {inputPrompt.model_mapping && (
                   <FormControl

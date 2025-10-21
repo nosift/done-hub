@@ -18,6 +18,7 @@ import (
 	"done-hub/providers/coze"
 	"done-hub/providers/deepseek"
 	"done-hub/providers/gemini"
+	"done-hub/providers/geminicli"
 	"done-hub/providers/github"
 	"done-hub/providers/groq"
 	"done-hub/providers/hunyuan"
@@ -93,6 +94,7 @@ func init() {
 		config.ChannelTypeAzureDatabricks: azuredatabricks.AzureDatabricksProviderFactory{},
 		config.ChannelTypeAzureV1:         azure_v1.AzureV1ProviderFactory{},
 		config.ChannelTypeXAI:             xAI.XAIProviderFactory{},
+		config.ChannelTypeGeminiCli:       geminicli.GeminiCliProviderFactory{},
 	}
 }
 
