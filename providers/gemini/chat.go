@@ -178,12 +178,10 @@ func CleanGeminiRequestData(rawData []byte, isVertexAI bool) ([]byte, error) {
 
 		for _, content := range contents {
 			if contentMap, ok := content.(map[string]interface{}); ok {
-				// 如果是 Vertex AI，确保每个 content 都有 role 字段
-				if isVertexAI {
-					if _, hasRole := contentMap["role"]; !hasRole {
-						// 如果没有 role 字段，默认设置为 "user"
-						contentMap["role"] = "user"
-					}
+				// 确保每个 content 都有 role 字段（Vertex AI 和 Gemini 都需要）
+				if _, hasRole := contentMap["role"]; !hasRole {
+					// 如果没有 role 字段，默认设置为 "user"
+					contentMap["role"] = "user"
 				}
 
 				if parts, ok := contentMap["parts"].([]interface{}); ok {
