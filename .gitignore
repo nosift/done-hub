@@ -18,5 +18,3 @@ test.yaml
 one-api
 _output
 .DS_Store
-
-providers/geminicli/base.go
