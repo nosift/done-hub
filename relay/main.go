@@ -88,10 +88,8 @@ func Relay(c *gin.Context) {
 	logger.LogError(c.Request.Context(), fmt.Sprintf("retry_start model=%s total_channels=%d config_max_retries=%d actual_max_retries=%d initial_error=\"%s\" status_code=%d",
 		modelName, totalChannelsAtStart, retryTimes, actualRetryTimes, apiErr.OpenAIError.Message, apiErr.StatusCode))
 
-	if channel.Type == config.ChannelTypeGeminiCli {
-		if apiErr.StatusCode != http.StatusUnauthorized && apiErr.StatusCode != http.StatusForbidden {
-			c.Set("first_non_auth_error", apiErr)
-		}
+	if apiErr.StatusCode != http.StatusUnauthorized && apiErr.StatusCode != http.StatusForbidden {
+		c.Set("first_non_auth_error", apiErr)
 	}
 
 	for i := actualRetryTimes; i > 0; i-- {
@@ -142,11 +140,9 @@ func Relay(c *gin.Context) {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("retry_failed attempt=%d/%d channel_id=%d status_code=%d error_type=\"%s\" error=\"%s\"",
 			attemptCount, actualRetryTimes, channel.Id, apiErr.StatusCode, apiErr.OpenAIError.Type, apiErr.OpenAIError.Message))
 
-		if channel.Type == config.ChannelTypeGeminiCli {
-			if apiErr.StatusCode != http.StatusUnauthorized && apiErr.StatusCode != http.StatusForbidden {
-				if _, exists := c.Get("first_non_auth_error"); !exists {
-					c.Set("first_non_auth_error", apiErr)
-				}
+		if apiErr.StatusCode != http.StatusUnauthorized && apiErr.StatusCode != http.StatusForbidden {
+			if _, exists := c.Get("first_non_auth_error"); !exists {
+				c.Set("first_non_auth_error", apiErr)
 			}
 		}
 

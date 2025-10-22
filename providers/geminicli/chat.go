@@ -26,7 +26,7 @@ func (p *GeminiCliProvider) CreateChatCompletion(request *types.ChatCompletionRe
 	}
 
 	// 构建内部API请求
-	req, errWithCode := p.getChatRequest(geminiRequest, false)
+	req, errWithCode := p.getChatRequest(geminiRequest, false, false)
 	if errWithCode != nil {
 		return nil, errWithCode
 	}
@@ -57,7 +57,7 @@ func (p *GeminiCliProvider) CreateChatCompletionStream(request *types.ChatComple
 	}
 
 	// 构建内部API请求
-	req, errWithCode := p.getChatRequest(geminiRequest, true)
+	req, errWithCode := p.getChatRequest(geminiRequest, true, false)
 	if errWithCode != nil {
 		return nil, errWithCode
 	}
@@ -80,7 +80,7 @@ func (p *GeminiCliProvider) CreateChatCompletionStream(request *types.ChatComple
 }
 
 // getChatRequest 构建内部API请求
-func (p *GeminiCliProvider) getChatRequest(geminiRequest *gemini.GeminiChatRequest, isStream bool) (*http.Request, *types.OpenAIErrorWithStatusCode) {
+func (p *GeminiCliProvider) getChatRequest(geminiRequest *gemini.GeminiChatRequest, isStream bool, isRelay bool) (*http.Request, *types.OpenAIErrorWithStatusCode) {
 	// 确定请求URL
 	action := "generateContent"
 	if isStream {
@@ -95,11 +95,40 @@ func (p *GeminiCliProvider) getChatRequest(geminiRequest *gemini.GeminiChatReque
 		return nil, common.StringErrorWrapper(err.Error(), "geminicli_token_error", http.StatusUnauthorized)
 	}
 
-	// 构建内部API请求体
-	cliRequest := &GeminiCliRequest{
-		Model:   geminiRequest.Model,
-		Project: p.ProjectID,
-		Request: geminiRequest,
+	// 只有在 relay 模式下才清理数据（与 gemini provider 保持一致）
+	var requestBody any
+	if isRelay {
+		// 序列化请求以便清理
+		rawData, err := json.Marshal(geminiRequest)
+		if err != nil {
+			return nil, common.ErrorWrapper(err, "marshal_geminicli_request_failed", http.StatusInternalServerError)
+		}
+
+		// 清理数据，确保 role 字段兼容性
+		cleanedData, err := gemini.CleanGeminiRequestData(rawData, false)
+		if err != nil {
+			return nil, common.ErrorWrapper(err, "clean_geminicli_request_failed", http.StatusInternalServerError)
+		}
+
+		// 反序列化清理后的数据
+		var cleanedRequest gemini.GeminiChatRequest
+		if err := json.Unmarshal(cleanedData, &cleanedRequest); err != nil {
+			return nil, common.ErrorWrapper(err, "unmarshal_cleaned_request_failed", http.StatusInternalServerError)
+		}
+
+		// 构建内部API请求体
+		requestBody = &GeminiCliRequest{
+			Model:   geminiRequest.Model,
+			Project: p.ProjectID,
+			Request: &cleanedRequest,
+		}
+	} else {
+		// 非 relay 模式（chat completions），直接使用原始请求
+		requestBody = &GeminiCliRequest{
+			Model:   geminiRequest.Model,
+			Project: p.ProjectID,
+			Request: geminiRequest,
+		}
 	}
 
 	// 如果是流式请求，添加alt=sse参数
@@ -108,7 +137,7 @@ func (p *GeminiCliProvider) getChatRequest(geminiRequest *gemini.GeminiChatReque
 	}
 
 	// 创建请求
-	req, err := p.Requester.NewRequest(http.MethodPost, fullRequestURL, p.Requester.WithBody(cliRequest), p.Requester.WithHeader(headers))
+	req, err := p.Requester.NewRequest(http.MethodPost, fullRequestURL, p.Requester.WithBody(requestBody), p.Requester.WithHeader(headers))
 	if err != nil {
 		return nil, common.ErrorWrapper(err, "create_request_failed", http.StatusInternalServerError)
 	}

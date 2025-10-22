@@ -15,7 +15,7 @@ import (
 
 // CreateGeminiChat 创建Gemini格式的聊天（非流式）
 func (p *GeminiCliProvider) CreateGeminiChat(request *gemini.GeminiChatRequest) (*gemini.GeminiChatResponse, *types.OpenAIErrorWithStatusCode) {
-	req, errWithCode := p.getChatRequest(request, false)
+	req, errWithCode := p.getChatRequest(request, false, true)
 	if errWithCode != nil {
 		return nil, errWithCode
 	}
@@ -49,7 +49,7 @@ func (p *GeminiCliProvider) CreateGeminiChat(request *gemini.GeminiChatRequest) 
 
 // CreateGeminiChatStream 创建Gemini格式的聊天（流式）
 func (p *GeminiCliProvider) CreateGeminiChatStream(request *gemini.GeminiChatRequest) (requester.StreamReaderInterface[string], *types.OpenAIErrorWithStatusCode) {
-	req, errWithCode := p.getChatRequest(request, true)
+	req, errWithCode := p.getChatRequest(request, true, true)
 	if errWithCode != nil {
 		return nil, errWithCode
 	}
