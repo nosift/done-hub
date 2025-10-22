@@ -116,6 +116,8 @@ func (p *GeminiCliProvider) getChatRequest(geminiRequest *gemini.GeminiChatReque
 			return nil, common.ErrorWrapper(err, "unmarshal_cleaned_request_failed", http.StatusInternalServerError)
 		}
 
+		delete(cleanedRequestMap, "model")
+
 		// 包装为 GeminiCliRequest 格式
 		requestBody = map[string]interface{}{
 			"model":   geminiRequest.Model,
