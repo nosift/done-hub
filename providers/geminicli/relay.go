@@ -153,6 +153,6 @@ func (h *GeminiCliRelayStreamHandler) HandlerStream(rawLine *[]byte, dataChan ch
 		return
 	}
 
-	// 转发为 data: {...} 格式
-	dataChan <- fmt.Sprintf("data: %s", string(responseJSON))
+	dataChan <- fmt.Sprintf("data: %s\n", string(responseJSON))
+
 }
