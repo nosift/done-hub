@@ -346,7 +346,6 @@ func responseGeneralStreamClient(c *gin.Context, stream requester.StreamReaderIn
 
 	// 创建一个done channel用于通知处理完成
 	done := make(chan struct{})
-	// var finalErr *types.OpenAIErrorWithStatusCode
 
 	defer stream.Close()
 	var isFirstResponse bool

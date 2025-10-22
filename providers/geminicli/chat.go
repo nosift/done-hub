@@ -98,10 +98,10 @@ func (p *GeminiCliProvider) getChatRequest(geminiRequest *gemini.GeminiChatReque
 	// 只有在 relay 模式下才清理数据（与 gemini provider 保持一致）
 	var requestBody any
 	if isRelay {
-		// 序列化请求以便清理
-		rawData, err := json.Marshal(geminiRequest)
-		if err != nil {
-			return nil, common.ErrorWrapper(err, "marshal_geminicli_request_failed", http.StatusInternalServerError)
+		// 使用原始请求体（避免序列化/反序列化导致数据丢失）
+		rawData, exists := p.GetRawBody()
+		if !exists {
+			return nil, common.StringErrorWrapperLocal("request body not found", "request_body_not_found", http.StatusInternalServerError)
 		}
 
 		// 清理数据，确保 role 字段兼容性
@@ -110,20 +110,19 @@ func (p *GeminiCliProvider) getChatRequest(geminiRequest *gemini.GeminiChatReque
 			return nil, common.ErrorWrapper(err, "clean_geminicli_request_failed", http.StatusInternalServerError)
 		}
 
-		// 反序列化清理后的数据
-		var cleanedRequest gemini.GeminiChatRequest
-		if err := json.Unmarshal(cleanedData, &cleanedRequest); err != nil {
+		// 解析清理后的数据为 map，以便包装
+		var cleanedRequestMap map[string]interface{}
+		if err := json.Unmarshal(cleanedData, &cleanedRequestMap); err != nil {
 			return nil, common.ErrorWrapper(err, "unmarshal_cleaned_request_failed", http.StatusInternalServerError)
 		}
 
-		// 构建内部API请求体
-		requestBody = &GeminiCliRequest{
-			Model:   geminiRequest.Model,
-			Project: p.ProjectID,
-			Request: &cleanedRequest,
+		// 包装为 GeminiCliRequest 格式
+		requestBody = map[string]interface{}{
+			"model":   geminiRequest.Model,
+			"project": p.ProjectID,
+			"request": cleanedRequestMap,
 		}
 	} else {
-		// 非 relay 模式（chat completions），直接使用原始请求
 		requestBody = &GeminiCliRequest{
 			Model:   geminiRequest.Model,
 			Project: p.ProjectID,
@@ -131,7 +130,6 @@ func (p *GeminiCliProvider) getChatRequest(geminiRequest *gemini.GeminiChatReque
 		}
 	}
 
-	// 如果是流式请求，添加alt=sse参数
 	if isStream {
 		fullRequestURL += "?alt=sse"
 	}
