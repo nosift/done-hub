@@ -1223,7 +1223,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
                     <FormHelperText id="helper-tex-channel-key-label">
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span>{customizeT(inputPrompt.key)}</span>
-                        {channelId === 0 && (
+                        {channelId === 0 && values.type !== 42 && values.type !== 57 && (
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                             <Switch
                               size="small"
