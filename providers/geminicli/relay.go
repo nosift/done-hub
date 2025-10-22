@@ -91,9 +91,7 @@ type GeminiCliRelayStreamHandler struct {
 func (h *GeminiCliRelayStreamHandler) HandlerStream(rawLine *[]byte, dataChan chan string, errChan chan error) {
 	rawStr := string(*rawLine)
 
-	// 如果不是 data: 开头，直接转发
 	if !strings.HasPrefix(rawStr, h.Prefix) {
-		dataChan <- rawStr
 		return
 	}
 
@@ -112,7 +110,7 @@ func (h *GeminiCliRelayStreamHandler) HandlerStream(rawLine *[]byte, dataChan ch
 
 	// 提取实际的 Gemini 响应
 	if cliResponse.Response == nil {
-		logger.SysError("GeminiCli relay stream response has no 'response' field")
+		dataChan <- rawStr
 		return
 	}
 
@@ -153,6 +151,6 @@ func (h *GeminiCliRelayStreamHandler) HandlerStream(rawLine *[]byte, dataChan ch
 		return
 	}
 
-	dataChan <- fmt.Sprintf("data: %s\n", string(responseJSON))
+	dataChan <- fmt.Sprintf("data: %s\n\n", string(responseJSON))
 
 }
