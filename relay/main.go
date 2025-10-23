@@ -21,6 +21,11 @@ import (
 )
 
 func Relay(c *gin.Context) {
+	// 在请求完成后清理缓存的请求体，防止内存泄漏
+	defer func() {
+		c.Set(config.GinRequestBodyKey, nil)
+	}()
+
 	relay := Path2Relay(c, c.Request.URL.Path)
 	if relay == nil {
 		common.AbortWithMessage(c, http.StatusNotFound, "Not Found")

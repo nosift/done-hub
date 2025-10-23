@@ -15,6 +15,11 @@ import (
 )
 
 func RelayRerank(c *gin.Context) {
+	// 在请求完成后清理缓存的请求体，防止内存泄漏
+	defer func() {
+		c.Set(config.GinRequestBodyKey, nil)
+	}()
+
 	relay := NewRelayRerank(c)
 
 	if err := relay.setRequest(); err != nil {

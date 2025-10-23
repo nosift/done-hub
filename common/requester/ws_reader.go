@@ -20,6 +20,10 @@ func (stream *wsReader[T]) Recv() (<-chan T, <-chan error) {
 }
 
 func (stream *wsReader[T]) processLines() {
+	// ✅ 确保函数退出时关闭 channels，防止 goroutine 泄漏
+	defer close(stream.DataChan)
+	defer close(stream.ErrChan)
+
 	for {
 		_, msg, err := stream.reader.ReadMessage()
 		if err != nil {

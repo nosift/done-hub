@@ -63,6 +63,10 @@ func (stream *streamReader[T]) Recv() (<-chan T, <-chan error) {
 
 //nolint:gocognit
 func (stream *streamReader[T]) processLines() {
+	// ✅ 确保函数退出时关闭 channels，防止 goroutine 泄漏
+	defer close(stream.DataChan)
+	defer close(stream.ErrChan)
+
 	for {
 		rawLine, readErr := stream.reader.ReadBytes('\n')
 		if readErr != nil {

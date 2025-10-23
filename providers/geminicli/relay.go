@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // CreateGeminiChat 创建Gemini格式的聊天（非流式）
@@ -104,13 +105,22 @@ func (h *GeminiCliRelayStreamHandler) HandlerStream(rawLine *[]byte, dataChan ch
 	err := json.Unmarshal(noSpaceLine, &cliResponse)
 	if err != nil {
 		logger.SysError(fmt.Sprintf("Failed to unmarshal GeminiCli relay stream response: %s", err.Error()))
-		errChan <- gemini.ErrorToGeminiErr(err)
+		// 添加超时保护，防止 goroutine 永久阻塞
+		select {
+		case errChan <- gemini.ErrorToGeminiErr(err):
+		case <-time.After(1000 * time.Millisecond):
+			logger.SysError("Failed to send unmarshal error to errChan: timeout")
+		}
 		return
 	}
 
 	// 提取实际的 Gemini 响应
 	if cliResponse.Response == nil {
-		dataChan <- rawStr
+		select {
+		case dataChan <- rawStr:
+		case <-time.After(1000 * time.Millisecond):
+			logger.SysError("Failed to send raw response to dataChan: timeout")
+		}
 		return
 	}
 
@@ -119,7 +129,11 @@ func (h *GeminiCliRelayStreamHandler) HandlerStream(rawLine *[]byte, dataChan ch
 	// 检查错误
 	if geminiResponse.ErrorInfo != nil {
 		cleaningError(geminiResponse.ErrorInfo, h.Key)
-		errChan <- geminiResponse.ErrorInfo
+		select {
+		case errChan <- geminiResponse.ErrorInfo:
+		case <-time.After(1000 * time.Millisecond):
+			logger.SysError("Failed to send error info to errChan: timeout")
+		}
 		return
 	}
 
@@ -147,10 +161,18 @@ func (h *GeminiCliRelayStreamHandler) HandlerStream(rawLine *[]byte, dataChan ch
 	responseJSON, err := json.Marshal(geminiResponse)
 	if err != nil {
 		logger.SysError(fmt.Sprintf("Failed to marshal Gemini response: %s", err.Error()))
-		errChan <- gemini.ErrorToGeminiErr(err)
+		select {
+		case errChan <- gemini.ErrorToGeminiErr(err):
+		case <-time.After(1000 * time.Millisecond):
+			logger.SysError("Failed to send marshal error to errChan: timeout")
+		}
 		return
 	}
 
-	dataChan <- fmt.Sprintf("data: %s\n\n", string(responseJSON))
-
+	// 添加超时保护，防止在客户端断开时永久阻塞
+	select {
+	case dataChan <- fmt.Sprintf("data: %s\n\n", string(responseJSON)):
+	case <-time.After(1000 * time.Millisecond):
+		logger.SysError("Failed to send response data to dataChan: timeout")
+	}
 }

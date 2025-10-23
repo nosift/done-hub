@@ -104,25 +104,54 @@ func (p *GeminiCliProvider) getChatRequest(geminiRequest *gemini.GeminiChatReque
 			return nil, common.StringErrorWrapperLocal("request body not found", "request_body_not_found", http.StatusInternalServerError)
 		}
 
-		// 清理数据，确保 role 字段兼容性
-		cleanedData, err := gemini.CleanGeminiRequestData(rawData, false)
-		if err != nil {
-			return nil, common.ErrorWrapper(err, "clean_geminicli_request_failed", http.StatusInternalServerError)
+		// 直接在原始数据上操作，避免多次序列化/反序列化
+		var rawMap map[string]interface{}
+		if err := json.Unmarshal(rawData, &rawMap); err != nil {
+			return nil, common.ErrorWrapper(err, "unmarshal_request_failed", http.StatusInternalServerError)
 		}
 
-		// 解析清理后的数据为 map，以便包装
-		var cleanedRequestMap map[string]interface{}
-		if err := json.Unmarshal(cleanedData, &cleanedRequestMap); err != nil {
-			return nil, common.ErrorWrapper(err, "unmarshal_cleaned_request_failed", http.StatusInternalServerError)
+		// 清理 contents 中的 role 和 id 字段
+		if contents, ok := rawMap["contents"].([]interface{}); ok {
+			for _, content := range contents {
+				if contentMap, ok := content.(map[string]interface{}); ok {
+					// 确保每个 content 都有 role 字段
+					if _, hasRole := contentMap["role"]; !hasRole {
+						contentMap["role"] = "user"
+					}
+
+					// 清理 parts 中的 function_call 和 function_response 的 id 字段
+					if parts, ok := contentMap["parts"].([]interface{}); ok {
+						for _, part := range parts {
+							if partMap, ok := part.(map[string]interface{}); ok {
+								// 检查所有可能的字段名：functionCall, function_call
+								fieldNames := []string{"functionCall", "function_call"}
+								for _, fieldName := range fieldNames {
+									if functionCall, ok := partMap[fieldName].(map[string]interface{}); ok {
+										delete(functionCall, "id")
+									}
+								}
+
+								// 检查所有可能的 function_response 字段名：functionResponse, function_response
+								responseFieldNames := []string{"functionResponse", "function_response"}
+								for _, fieldName := range responseFieldNames {
+									if functionResponse, ok := partMap[fieldName].(map[string]interface{}); ok {
+										delete(functionResponse, "id")
+									}
+								}
+							}
+						}
+					}
+				}
+			}
 		}
 
-		delete(cleanedRequestMap, "model")
+		delete(rawMap, "model")
 
 		// 包装为 GeminiCliRequest 格式
 		requestBody = map[string]interface{}{
 			"model":   geminiRequest.Model,
 			"project": p.ProjectID,
-			"request": cleanedRequestMap,
+			"request": rawMap,
 		}
 	} else {
 		requestBody = &GeminiCliRequest{
