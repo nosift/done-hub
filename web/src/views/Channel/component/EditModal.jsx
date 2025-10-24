@@ -5,6 +5,7 @@ import { useTheme } from '@mui/material/styles';
 import { API } from 'utils/api';
 import { copy, showError, showSuccess, trims } from 'utils/common';
 import {
+  Alert,
   Autocomplete,
   Box,
   Button,
@@ -1263,9 +1264,9 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
                         复制链接
                       </Button>
                     </Box>
-                    <FormHelperText sx={{ textAlign: 'center', mt: 1 }}>
-                      点击"OAuth 授权"将打开新窗口进行 Google 授权。您也可以点击"复制链接"在其他浏览器中打开，授权成功后凭证将自动填充
-                    </FormHelperText>
+                    <Alert severity="info" sx={{ mt: 1 }}>
+                      授权后会跳转到 localhost:8080，请在浏览器地址栏中将 localhost:8080 改为当前服务的域名后刷新访问完成授权
+                    </Alert>
                   </Box>
                 )}
 

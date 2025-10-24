@@ -94,6 +94,11 @@ func StartGeminiCliOAuth(c *gin.Context) {
 	params.Set("include_granted_scopes", "true")
 	params.Set("state", state)
 
+	// 将 project_id 添加到授权 URL 参数中，以便 Google 知道要授权哪个项目
+	if req.ProjectID != "" {
+		params.Set("project_id", req.ProjectID)
+	}
+
 	authURL := "https://accounts.google.com/o/oauth2/auth?" + params.Encode()
 
 	c.JSON(http.StatusOK, gin.H{
