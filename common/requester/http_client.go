@@ -13,22 +13,25 @@ func InitHttpClient() {
 		DialContext: utils.Socks5ProxyFunc,
 		Proxy:       utils.ProxyFunc,
 
-		MaxIdleConns:        300,
-		MaxIdleConnsPerHost: 10,
-		MaxConnsPerHost:     20,
-		IdleConnTimeout:     120 * time.Second,
+		MaxIdleConns:        1000,
+		MaxIdleConnsPerHost: 200,
+		MaxConnsPerHost:     500,
+		IdleConnTimeout:     90 * time.Second,
 
-		TLSHandshakeTimeout:   15 * time.Second,
-		ExpectContinueTimeout: 2 * time.Second,
-		ResponseHeaderTimeout: 60 * time.Second,
+		// 超时配置 - 针对 SSE 长连接优化
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		ResponseHeaderTimeout: 0,
 
-		DisableKeepAlives:  false, // 启用 Keep-Alive（复用连接）
-		DisableCompression: false, // 启用压缩
-		ForceAttemptHTTP2:  true,  // 优先使用 HTTP/2（更高效）
+		// 连接复用优化
+		DisableKeepAlives:  false,
+		DisableCompression: false,
+		ForceAttemptHTTP2:  true,
 	}
 
 	HTTPClient = &http.Client{
 		Transport: trans,
+		Timeout:   0,
 	}
 
 	relayTimeout := utils.GetOrDefault("relay_timeout", 0)

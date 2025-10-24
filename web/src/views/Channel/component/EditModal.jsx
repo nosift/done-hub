@@ -1,9 +1,9 @@
-import PropTypes from 'prop-types';
-import { useEffect, useRef, useState } from 'react';
-import { CHANNEL_OPTIONS } from 'constants/ChannelConstants';
-import { useTheme } from '@mui/material/styles';
-import { API } from 'utils/api';
-import { copy, showError, showSuccess, trims } from 'utils/common';
+import PropTypes from 'prop-types'
+import { useEffect, useRef, useState } from 'react'
+import { CHANNEL_OPTIONS } from 'constants/ChannelConstants'
+import { useTheme } from '@mui/material/styles'
+import { API } from 'utils/api'
+import { copy, showError, showSuccess, trims } from 'utils/common'
 import {
   Alert,
   Autocomplete,
@@ -31,26 +31,26 @@ import {
   Tooltip,
   Typography,
   useMediaQuery
-} from '@mui/material';
-import { Formik } from 'formik';
-import * as Yup from 'yup';
-import { defaultConfig, typeConfig } from '../type/Config'; //typeConfig
-import { createFilterOptions } from '@mui/material/Autocomplete';
-import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
-import CheckBoxIcon from '@mui/icons-material/CheckBox';
-import { useTranslation } from 'react-i18next';
-import useCustomizeT from 'hooks/useCustomizeT';
-import { PreCostType } from '../type/other';
-import MapInput from './MapInput';
-import ListInput from './ListInput';
-import ModelSelectorModal from './ModelSelectorModal';
-import pluginList from '../type/Plugin.json';
-import { Icon } from '@iconify/react';
+} from '@mui/material'
+import { Formik } from 'formik'
+import * as Yup from 'yup'
+import { defaultConfig, typeConfig } from '../type/Config' //typeConfig
+import { createFilterOptions } from '@mui/material/Autocomplete'
+import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank'
+import CheckBoxIcon from '@mui/icons-material/CheckBox'
+import { useTranslation } from 'react-i18next'
+import useCustomizeT from 'hooks/useCustomizeT'
+import { PreCostType } from '../type/other'
+import MapInput from './MapInput'
+import ListInput from './ListInput'
+import ModelSelectorModal from './ModelSelectorModal'
+import pluginList from '../type/Plugin.json'
+import { Icon } from '@iconify/react'
 
-const icon = <CheckBoxOutlineBlankIcon fontSize="small" />;
-const checkedIcon = <CheckBoxIcon fontSize="small" />;
+const icon = <CheckBoxOutlineBlankIcon fontSize="small"/>
+const checkedIcon = <CheckBoxIcon fontSize="small"/>
 
-const filter = createFilterOptions();
+const filter = createFilterOptions()
 const getValidationSchema = (t) =>
   Yup.object().shape({
     is_edit: Yup.boolean(),
@@ -71,194 +71,194 @@ const getValidationSchema = (t) =>
     model_mapping: Yup.array(),
     model_headers: Yup.array(),
     custom_parameter: Yup.string().nullable()
-  });
+  })
 
 const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, modelOptions, prices }) => {
-  const { t } = useTranslation();
-  const { t: customizeT } = useCustomizeT();
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const { t } = useTranslation()
+  const { t: customizeT } = useCustomizeT()
+  const theme = useTheme()
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
   // const [loading, setLoading] = useState(false);
-  const [initialInput, setInitialInput] = useState(defaultConfig.input);
-  const [inputLabel, setInputLabel] = useState(defaultConfig.inputLabel); //
-  const [inputPrompt, setInputPrompt] = useState(defaultConfig.prompt);
-  const [batchAdd, setBatchAdd] = useState(false);
-  const [hasTag, setHasTag] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-  const [inputValue, setInputValue] = useState('');
-  const [parameterFocused, setParameterFocused] = useState(false);
-  const parameterInputRef = useRef(null);
-  const removeDuplicates = (array) => [...new Set(array)];
-  const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
-  const [tempFormikValues, setTempFormikValues] = useState(null);
-  const [tempSetFieldValue, setTempSetFieldValue] = useState(null);
+  const [initialInput, setInitialInput] = useState(defaultConfig.input)
+  const [inputLabel, setInputLabel] = useState(defaultConfig.inputLabel) //
+  const [inputPrompt, setInputPrompt] = useState(defaultConfig.prompt)
+  const [batchAdd, setBatchAdd] = useState(false)
+  const [hasTag, setHasTag] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const [inputValue, setInputValue] = useState('')
+  const [parameterFocused, setParameterFocused] = useState(false)
+  const parameterInputRef = useRef(null)
+  const removeDuplicates = (array) => [...new Set(array)]
+  const [modelSelectorOpen, setModelSelectorOpen] = useState(false)
+  const [tempFormikValues, setTempFormikValues] = useState(null)
+  const [tempSetFieldValue, setTempSetFieldValue] = useState(null)
 
   // 用于追踪模型的原始名称映射关系 { displayName: originalName }
-  const [modelOriginalMapping, setModelOriginalMapping] = useState({});
+  const [modelOriginalMapping, setModelOriginalMapping] = useState({})
 
   // GeminiCli OAuth 相关状态
-  const [oauthLoading, setOauthLoading] = useState(false);
-  const [oauthWindow, setOauthWindow] = useState(null);
-  const [oauthState, setOauthState] = useState(null);
-  const [oauthURL, setOauthURL] = useState('');
-  const oauthHandledRef = useRef(false); // 用于防止重复处理
-  const pollingIntervalRef = useRef(null); // 使用 ref 存储 interval ID
+  const [oauthLoading, setOauthLoading] = useState(false)
+  const [oauthWindow, setOauthWindow] = useState(null)
+  const [oauthState, setOauthState] = useState(null)
+  const [oauthURL, setOauthURL] = useState('')
+  const oauthHandledRef = useRef(false) // 用于防止重复处理
+  const pollingIntervalRef = useRef(null) // 使用 ref 存储 interval ID
 
   // 清理 OAuth 相关资源
   const cleanupOAuth = () => {
     if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-      pollingIntervalRef.current = null;
+      clearInterval(pollingIntervalRef.current)
+      pollingIntervalRef.current = null
     }
     if (oauthWindow && !oauthWindow.closed) {
-      oauthWindow.close();
+      oauthWindow.close()
     }
-    setOauthWindow(null);
-    setOauthLoading(false);
-    setOauthState(null);
-    oauthHandledRef.current = false;
-  };
+    setOauthWindow(null)
+    setOauthLoading(false)
+    setOauthState(null)
+    oauthHandledRef.current = false
+  }
 
   // 包装 onCancel，添加清理逻辑
   const handleCancel = () => {
-    cleanupOAuth();
-    onCancel();
-  };
+    cleanupOAuth()
+    onCancel()
+  }
 
   const initChannel = (typeValue) => {
     if (typeConfig[typeValue]?.inputLabel) {
-      setInputLabel({ ...defaultConfig.inputLabel, ...typeConfig[typeValue].inputLabel });
+      setInputLabel({ ...defaultConfig.inputLabel, ...typeConfig[typeValue].inputLabel })
     } else {
-      setInputLabel(defaultConfig.inputLabel);
+      setInputLabel(defaultConfig.inputLabel)
     }
 
     if (typeConfig[typeValue]?.prompt) {
-      setInputPrompt({ ...defaultConfig.prompt, ...typeConfig[typeValue].prompt });
+      setInputPrompt({ ...defaultConfig.prompt, ...typeConfig[typeValue].prompt })
     } else {
-      setInputPrompt(defaultConfig.prompt);
+      setInputPrompt(defaultConfig.prompt)
     }
 
-    return typeConfig[typeValue]?.input;
-  };
+    return typeConfig[typeValue]?.input
+  }
 
   // 解析模型映射配置的工具函数
   const parseModelMapping = (mappingArray) => {
     if (!mappingArray || !Array.isArray(mappingArray) || mappingArray.length === 0) {
-      return null;
+      return null
     }
 
     try {
       const mapping = mappingArray.reduce((acc, item) => {
         if (item.key && item.value) {
-          acc[item.key] = item.value;
+          acc[item.key] = item.value
         }
-        return acc;
-      }, {});
+        return acc
+      }, {})
 
       if (Object.keys(mapping).length === 0) {
-        return null;
+        return null
       }
-      return mapping;
+      return mapping
     } catch (error) {
-      console.warn('模型重定向解析失败:', error);
-      return null;
+      console.warn('模型重定向解析失败:', error)
+      return null
     }
-  };
+  }
 
   // 更新模型列表的统一方法
   const updateModelsList = (newModels, newMapping, setFieldValue) => {
-    const uniqueModels = Array.from(new Set(newModels.filter(model => model && model.id && model.id.trim())));
+    const uniqueModels = Array.from(new Set(newModels.filter(model => model && model.id && model.id.trim())))
 
-    setFieldValue('models', uniqueModels);
-    setModelOriginalMapping(newMapping);
-  };
+    setFieldValue('models', uniqueModels)
+    setModelOriginalMapping(newMapping)
+  }
 
   // 恢复模型到原始名称
   const restoreModelsToOriginalNames = (currentModels, setFieldValue) => {
     const restoredModels = currentModels.map(model => {
-      const originalName = modelOriginalMapping[model.id] || model.id;
+      const originalName = modelOriginalMapping[model.id] || model.id
       return {
         ...model,
         id: originalName
-      };
-    });
+      }
+    })
 
     // 检查是否有变化
     const hasChanges = currentModels.some((model, index) => {
-      return model.id !== restoredModels[index].id;
-    });
+      return model.id !== restoredModels[index].id
+    })
 
     if (hasChanges) {
-      updateModelsList(restoredModels, {}, setFieldValue);
+      updateModelsList(restoredModels, {}, setFieldValue)
     }
-  };
+  }
 
   // 应用模型映射的核心逻辑
   const applyModelMapping = (mapping, currentModels, currentMapping, setFieldValue) => {
-    let updatedModels = [...currentModels];
-    let newMapping = { ...currentMapping };
-    let hasChanges = false;
+    let updatedModels = [...currentModels]
+    let newMapping = { ...currentMapping }
+    let hasChanges = false
 
     // 遍历重定向映射
     Object.entries(mapping).forEach(([key, mappedValue]) => {
       if (typeof key === 'string' && typeof mappedValue === 'string') {
-        const keyTrimmed = key.trim();
-        const valueTrimmed = mappedValue.trim();
+        const keyTrimmed = key.trim()
+        const valueTrimmed = mappedValue.trim()
 
         if (keyTrimmed && valueTrimmed) {
           // 查找模型配置中是否存在重定向的"值"（原始模型名）
           const valueIndex = updatedModels.findIndex(model => {
-            return model.id === valueTrimmed || newMapping[model.id] === valueTrimmed;
-          });
+            return model.id === valueTrimmed || newMapping[model.id] === valueTrimmed
+          })
 
           if (valueIndex !== -1) {
-            const currentDisplayName = updatedModels[valueIndex].id;
+            const currentDisplayName = updatedModels[valueIndex].id
             if (currentDisplayName !== keyTrimmed) {
               // 记录原始映射关系
               if (!newMapping[keyTrimmed]) {
-                newMapping[keyTrimmed] = newMapping[currentDisplayName] || currentDisplayName;
+                newMapping[keyTrimmed] = newMapping[currentDisplayName] || currentDisplayName
               }
               // 清理旧的映射关系
               if (newMapping[currentDisplayName]) {
-                delete newMapping[currentDisplayName];
+                delete newMapping[currentDisplayName]
               }
               // 更新显示名称为重定向的键
               updatedModels[valueIndex] = {
                 ...updatedModels[valueIndex],
                 id: keyTrimmed
-              };
-              hasChanges = true;
+              }
+              hasChanges = true
             }
           }
         }
       }
-    });
+    })
 
     // 处理不在映射中的模型，恢复为原始名称
-    const mappingKeys = new Set(Object.keys(mapping).map(key => key.trim()));
+    const mappingKeys = new Set(Object.keys(mapping).map(key => key.trim()))
     updatedModels = updatedModels.map(model => {
       if (!mappingKeys.has(model.id) && newMapping[model.id]) {
-        const originalName = newMapping[model.id];
-        delete newMapping[model.id];
-        hasChanges = true;
+        const originalName = newMapping[model.id]
+        delete newMapping[model.id]
+        hasChanges = true
         return {
           ...model,
           id: originalName
-        };
+        }
       }
-      return model;
-    });
+      return model
+    })
 
-    return { updatedModels, newMapping, hasChanges };
-  };
+    return { updatedModels, newMapping, hasChanges }
+  }
 
   // 实时同步模型重定向到模型配置的函数
   const syncModelMappingToModels = (mappingArray, currentModels, setFieldValue) => {
-    const mapping = parseModelMapping(mappingArray);
+    const mapping = parseModelMapping(mappingArray)
 
     if (!mapping) {
-      restoreModelsToOriginalNames(currentModels, setFieldValue);
-      return;
+      restoreModelsToOriginalNames(currentModels, setFieldValue)
+      return
     }
 
     const { updatedModels, newMapping, hasChanges } = applyModelMapping(
@@ -266,132 +266,132 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
       currentModels,
       modelOriginalMapping,
       setFieldValue
-    );
+    )
 
     if (hasChanges) {
-      updateModelsList(updatedModels, newMapping, setFieldValue);
+      updateModelsList(updatedModels, newMapping, setFieldValue)
     }
-  };
+  }
 
   // 轮询 OAuth 状态
-  const pollOAuthStatus = async (state, setFieldValue, messageHandlerRef) => {
+  const pollOAuthStatus = async(state, setFieldValue, messageHandlerRef) => {
     try {
       // 最早检查：如果已经处理过，立即返回，不做任何操作
       if (oauthHandledRef.current) {
-        return true;
+        return true
       }
 
-      const res = await API.get(`/api/geminicli/oauth/status/${state}`);
+      const res = await API.get(`/api/geminicli/oauth/status/${state}`)
 
       if (!res.data.success) {
-        return false;
+        return false
       }
 
       if (res.data.status === 'completed') {
         // 再次检查，防止竞态条件
         if (oauthHandledRef.current) {
-          return true;
+          return true
         }
 
         // 立即设置标志，防止其他路径重复处理
-        oauthHandledRef.current = true;
+        oauthHandledRef.current = true
 
         // 立即停止轮询
         if (pollingIntervalRef.current) {
-          clearInterval(pollingIntervalRef.current);
-          pollingIntervalRef.current = null;
+          clearInterval(pollingIntervalRef.current)
+          pollingIntervalRef.current = null
         }
 
         // 移除 message 监听器
         if (messageHandlerRef && messageHandlerRef.current) {
-          window.removeEventListener('message', messageHandlerRef.current);
-          messageHandlerRef.current = null;
+          window.removeEventListener('message', messageHandlerRef.current)
+          messageHandlerRef.current = null
         }
 
         // 更新状态
-        setOauthLoading(false);
-        setOauthState(null);
+        setOauthLoading(false)
+        setOauthState(null)
 
         // 处理结果
         if (res.data.result && res.data.credentials) {
-          setFieldValue('key', res.data.credentials);
-          showSuccess('OAuth 授权成功！凭证已自动填充');
+          setFieldValue('key', res.data.credentials)
+          showSuccess('OAuth 授权成功！凭证已自动填充')
         } else {
-          showError(res.data.message || 'OAuth 授权失败');
+          showError(res.data.message || 'OAuth 授权失败')
         }
 
         // 关闭弹窗
         if (oauthWindow && !oauthWindow.closed) {
-          oauthWindow.close();
+          oauthWindow.close()
         }
-        setOauthWindow(null);
+        setOauthWindow(null)
 
-        return true; // 已完成
+        return true // 已完成
       }
 
-      return false; // 未完成
+      return false // 未完成
     } catch (error) {
-      return false;
+      return false
     }
-  };
+  }
 
   // 复制 OAuth 授权链接
   const handleCopyOAuthURL = () => {
     if (!oauthURL) {
-      showError('请先点击授权按钮生成授权链接');
-      return;
+      showError('请先点击授权按钮生成授权链接')
+      return
     }
     navigator.clipboard.writeText(oauthURL).then(() => {
-      showSuccess('授权链接已复制到剪贴板');
+      showSuccess('授权链接已复制到剪贴板')
     }).catch(() => {
-      showError('复制失败，请手动复制');
-    });
-  };
+      showError('复制失败，请手动复制')
+    })
+  }
 
   // GeminiCli OAuth 授权处理
-  const handleGeminiCliOAuth = async (projectId, setFieldValue) => {
+  const handleGeminiCliOAuth = async(projectId, setFieldValue) => {
     if (!projectId || projectId.trim() === '') {
-      showError('请先填写 Project ID');
-      return;
+      showError('请先填写 Project ID')
+      return
     }
 
     try {
-      setOauthLoading(true);
-      oauthHandledRef.current = false; // 重置处理标志
+      setOauthLoading(true)
+      oauthHandledRef.current = false // 重置处理标志
 
       // 调用后端 API 生成授权 URL
       const res = await API.post('/api/geminicli/oauth/start', {
         channel_id: channelId || 0,
         project_id: projectId.trim()
-      });
+      })
 
       if (!res.data.success) {
-        showError(res.data.message || 'OAuth 授权失败');
-        setOauthLoading(false);
-        return;
+        showError(res.data.message || 'OAuth 授权失败')
+        setOauthLoading(false)
+        return
       }
 
-      const authURL = res.data.auth_url;
-      const state = res.data.state;
+      const authURL = res.data.auth_url
+      const state = res.data.state
 
-      setOauthState(state);
-      setOauthURL(authURL);
+      setOauthState(state)
+      setOauthURL(authURL)
 
       // 打开新窗口进行授权
-      const width = 600;
-      const height = 700;
-      const left = window.screen.width / 2 - width / 2;
-      const top = window.screen.height / 2 - height / 2;
+      const width = 600
+      const height = 700
+      const left = window.screen.width / 2 - width / 2
+      const top = window.screen.height / 2 - height / 2
       const popup = window.open(
         authURL,
         'GeminiCli OAuth',
         `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,location=no,status=no`
-      );
+      )
 
-      setOauthWindow(popup);
+      setOauthWindow(popup)
 
       // 用于存储 message handler 的引用
-      const messageHandlerRef = { current: null };
+      const messageHandlerRef = { current: null }
 
       // 监听来自 OAuth 窗口的消息（作为快速路径）
       const handleMessage = (event) => {
@@ -399,114 +399,114 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
         if (event.data && event.data.type === 'geminicli_oauth_result') {
           // 如果已经处理过，直接返回
           if (oauthHandledRef.current) {
-            return;
+            return
           }
 
           // 立即设置标志
-          oauthHandledRef.current = true;
+          oauthHandledRef.current = true
 
           // 立即停止轮询
           if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current);
-            pollingIntervalRef.current = null;
+            clearInterval(pollingIntervalRef.current)
+            pollingIntervalRef.current = null
           }
 
           // 移除自己
-          window.removeEventListener('message', handleMessage);
-          messageHandlerRef.current = null;
+          window.removeEventListener('message', handleMessage)
+          messageHandlerRef.current = null
 
           // 处理结果
           if (event.data.success && event.data.credentials) {
-            setFieldValue('key', event.data.credentials);
-            showSuccess('OAuth 授权成功！凭证已自动填充');
+            setFieldValue('key', event.data.credentials)
+            showSuccess('OAuth 授权成功！凭证已自动填充')
           } else {
-            showError('OAuth 授权失败');
+            showError('OAuth 授权失败')
           }
 
           // 更新状态
-          setOauthLoading(false);
-          setOauthState(null);
-          setOauthWindow(null);
+          setOauthLoading(false)
+          setOauthState(null)
+          setOauthWindow(null)
 
           // 关闭弹窗
           if (popup && !popup.closed) {
-            popup.close();
+            popup.close()
           }
         }
-      };
+      }
 
-      messageHandlerRef.current = handleMessage;
-      window.addEventListener('message', handleMessage);
+      messageHandlerRef.current = handleMessage
+      window.addEventListener('message', handleMessage)
 
       // 开始轮询状态（每 2 秒查询一次）
-      const interval = setInterval(async () => {
-        const completed = await pollOAuthStatus(state, setFieldValue, messageHandlerRef);
+      const interval = setInterval(async() => {
+        const completed = await pollOAuthStatus(state, setFieldValue, messageHandlerRef)
         if (completed) {
-          clearInterval(interval);
-          pollingIntervalRef.current = null;
+          clearInterval(interval)
+          pollingIntervalRef.current = null
         }
-      }, 2000);
+      }, 2000)
 
-      pollingIntervalRef.current = interval;
+      pollingIntervalRef.current = interval
 
       // 检测弹窗是否被关闭
       const checkClosed = setInterval(() => {
         if (popup && popup.closed) {
-          clearInterval(checkClosed);
+          clearInterval(checkClosed)
           // 不立即停止轮询，因为用户可能在其他浏览器完成授权
           if (messageHandlerRef.current) {
-            window.removeEventListener('message', messageHandlerRef.current);
-            messageHandlerRef.current = null;
+            window.removeEventListener('message', messageHandlerRef.current)
+            messageHandlerRef.current = null
           }
         }
-      }, 500);
+      }, 500)
 
       // 10 分钟后超时
       setTimeout(() => {
         // 检查是否已经处理过
         if (oauthHandledRef.current) {
-          return;
+          return
         }
 
         if (pollingIntervalRef.current) {
-          clearInterval(pollingIntervalRef.current);
-          pollingIntervalRef.current = null;
+          clearInterval(pollingIntervalRef.current)
+          pollingIntervalRef.current = null
         }
         if (messageHandlerRef.current) {
-          window.removeEventListener('message', messageHandlerRef.current);
-          messageHandlerRef.current = null;
+          window.removeEventListener('message', messageHandlerRef.current)
+          messageHandlerRef.current = null
         }
         if (oauthLoading) {
-          setOauthLoading(false);
-          setOauthState(null);
-          showError('OAuth 授权超时，请重试');
+          setOauthLoading(false)
+          setOauthState(null)
+          showError('OAuth 授权超时，请重试')
         }
-      }, 10 * 60 * 1000);
+      }, 10 * 60 * 1000)
 
     } catch (error) {
-      showError('OAuth 授权失败: ' + (error.message || error));
-      setOauthLoading(false);
+      showError('OAuth 授权失败: ' + (error.message || error))
+      setOauthLoading(false)
     }
-  };
+  }
 
   const handleTypeChange = (setFieldValue, typeValue, values) => {
     // 处理插件事务
     if (pluginList[typeValue]) {
-      const newPluginValues = {};
-      const pluginConfig = pluginList[typeValue];
+      const newPluginValues = {}
+      const pluginConfig = pluginList[typeValue]
       for (const pluginName in pluginConfig) {
-        const plugin = pluginConfig[pluginName];
-        const oldValve = values['plugin'] ? values['plugin'][pluginName] || {} : {};
-        newPluginValues[pluginName] = {};
+        const plugin = pluginConfig[pluginName]
+        const oldValve = values['plugin'] ? values['plugin'][pluginName] || {} : {}
+        newPluginValues[pluginName] = {}
         for (const paramName in plugin.params) {
-          const param = plugin.params[paramName];
-          newPluginValues[pluginName][paramName] = oldValve[paramName] || (param.type === 'bool' ? false : '');
+          const param = plugin.params[paramName]
+          newPluginValues[pluginName][paramName] = oldValve[paramName] || (param.type === 'bool' ? false : '')
         }
       }
-      setFieldValue('plugin', newPluginValues);
+      setFieldValue('plugin', newPluginValues)
     }
 
-    const newInput = initChannel(typeValue);
+    const newInput = initChannel(typeValue)
 
     if (newInput) {
       Object.keys(newInput).forEach((key) => {
@@ -514,103 +514,103 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
           (!Array.isArray(values[key]) && values[key] !== null && values[key] !== undefined && values[key] !== '') ||
           (Array.isArray(values[key]) && values[key].length > 0)
         ) {
-          return;
+          return
         }
 
         if (key === 'models') {
-          setFieldValue(key, initialModel(newInput[key]));
-          return;
+          setFieldValue(key, initialModel(newInput[key]))
+          return
         }
-        setFieldValue(key, newInput[key]);
-      });
+        setFieldValue(key, newInput[key])
+      })
     }
-  };
+  }
 
   const basicModels = (channelType) => {
-    let modelGroup = typeConfig[channelType]?.modelGroup || defaultConfig.modelGroup;
+    let modelGroup = typeConfig[channelType]?.modelGroup || defaultConfig.modelGroup
     // 循环 modelOptions，找到 modelGroup 对应的模型
-    let modelList = [];
+    let modelList = []
     modelOptions.forEach((model) => {
       if (model.group === modelGroup) {
-        modelList.push(model);
+        modelList.push(model)
       }
-    });
-    return modelList;
-  };
+    })
+    return modelList
+  }
 
   const handleModelSelectorConfirm = (selectedModels, overwriteModels) => {
     if (tempSetFieldValue && tempFormikValues) {
       if (overwriteModels) {
         // 覆盖模式：清空现有的模型列表，使用选择器中的模型
-        tempSetFieldValue('models', selectedModels);
+        tempSetFieldValue('models', selectedModels)
       } else {
         // 追加模式：合并现有模型和新选择的模型，避免重复
-        const existingModels = tempFormikValues.models || [];
-        const existingModelIds = new Set(existingModels.map((model) => model.id));
+        const existingModels = tempFormikValues.models || []
+        const existingModelIds = new Set(existingModels.map((model) => model.id))
 
         // 过滤掉已存在的模型，避免重复
-        const newModels = selectedModels.filter((model) => !existingModelIds.has(model.id));
+        const newModels = selectedModels.filter((model) => !existingModelIds.has(model.id))
 
         // 合并模型列表
-        tempSetFieldValue('models', [...existingModels, ...newModels]);
+        tempSetFieldValue('models', [...existingModels, ...newModels])
       }
     }
-  };
+  }
 
-  const submit = async (values, { setErrors, setStatus, setSubmitting }) => {
-    setSubmitting(true);
-    values = trims(values);
+  const submit = async(values, { setErrors, setStatus, setSubmitting }) => {
+    setSubmitting(true)
+    values = trims(values)
     if (values.base_url && values.base_url.endsWith('/')) {
-      values.base_url = values.base_url.slice(0, values.base_url.length - 1);
+      values.base_url = values.base_url.slice(0, values.base_url.length - 1)
     }
     if (values.type === 3 && values.other === '') {
-      values.other = '2024-05-01-preview';
+      values.other = '2024-05-01-preview'
     }
     if (values.type === 18 && values.other === '') {
-      values.other = 'v2.1';
+      values.other = 'v2.1'
     }
-    let res;
+    let res
 
-    let modelMappingModel = [];
+    let modelMappingModel = []
 
     if (values.model_mapping) {
       try {
         const modelMapping = values.model_mapping.reduce((acc, item) => {
           if (item.key && item.value) {
-            acc[item.key] = item.value;
+            acc[item.key] = item.value
           }
-          return acc;
-        }, {});
-        const cleanedMapping = {};
+          return acc
+        }, {})
+        const cleanedMapping = {}
 
         for (const [key, value] of Object.entries(modelMapping)) {
           if (key && value && !(key in cleanedMapping)) {
-            cleanedMapping[key] = value;
-            modelMappingModel.push(key);
+            cleanedMapping[key] = value
+            modelMappingModel.push(key)
           }
         }
 
-        values.model_mapping = JSON.stringify(cleanedMapping, null, 2);
+        values.model_mapping = JSON.stringify(cleanedMapping, null, 2)
       } catch (error) {
-        showError('Error parsing model_mapping:' + error.message);
+        showError('Error parsing model_mapping:' + error.message)
       }
     }
-    let modelHeadersKey = [];
+    let modelHeadersKey = []
 
     if (values.model_headers) {
       try {
         const modelHeader = values.model_headers.reduce((acc, item) => {
           if (item.key && item.value) {
-            acc[item.key] = item.value;
+            acc[item.key] = item.value
           }
-          return acc;
-        }, {});
-        const cleanedHeader = {};
+          return acc
+        }, {})
+        const cleanedHeader = {}
 
         for (const [key, value] of Object.entries(modelHeader)) {
           if (key && value && !(key in cleanedHeader)) {
-            cleanedHeader[key] = value;
-            modelHeadersKey.push(key);
+            cleanedHeader[key] = value
+            modelHeadersKey.push(key)
           }
         }
 
@@ -734,19 +734,19 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
             : []
 
         // 初始化模型原始映射关系
-        const mapping = parseModelMapping(data.model_mapping);
+        const mapping = parseModelMapping(data.model_mapping)
         if (mapping) {
-          const initialMapping = {};
+          const initialMapping = {}
           // 根据当前的模型映射和模型列表，建立原始映射关系
           Object.entries(mapping).forEach(([key, value]) => {
-            const modelExists = data.models.some(model => model.id === key);
+            const modelExists = data.models.some(model => model.id === key)
             if (modelExists) {
-              initialMapping[key] = value;
+              initialMapping[key] = value
             }
-          });
-          setModelOriginalMapping(initialMapping);
+          })
+          setModelOriginalMapping(initialMapping)
         } else {
-          setModelOriginalMapping({});
+          setModelOriginalMapping({})
         }
         // if (data.model_headers) {
         data.model_headers =
@@ -801,11 +801,11 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
         initChannel(1)
         setInitialInput({ ...defaultConfig.input, is_edit: false })
         // 重置模型原始映射关系
-        setModelOriginalMapping({});
+        setModelOriginalMapping({})
       }
     } else {
       // 关闭对话框时清理 OAuth 窗口和轮询
-      cleanupOAuth();
+      cleanupOAuth()
     }
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -916,12 +916,14 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
                         {errors.name}
                       </FormHelperText>
                     ) : (
-                      <FormHelperText id="helper-tex-channel-name-label"> {customizeT(inputPrompt.name)} </FormHelperText>
+                      <FormHelperText
+                        id="helper-tex-channel-name-label"> {customizeT(inputPrompt.name)} </FormHelperText>
                     )}
                   </FormControl>
                 )}
                 {inputPrompt.base_url && (
-                  <FormControl fullWidth error={Boolean(touched.base_url && errors.base_url)} sx={{ ...theme.typography.otherInput }}>
+                  <FormControl fullWidth error={Boolean(touched.base_url && errors.base_url)}
+                               sx={{ ...theme.typography.otherInput }}>
                     <InputLabel htmlFor="channel-base_url-label">{customizeT(inputLabel.base_url)}</InputLabel>
                     <OutlinedInput
                       id="channel-base_url-label"
@@ -940,13 +942,15 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
                         {errors.base_url}
                       </FormHelperText>
                     ) : (
-                      <FormHelperText id="helper-tex-channel-base_url-label"> {customizeT(inputPrompt.base_url)} </FormHelperText>
+                      <FormHelperText
+                        id="helper-tex-channel-base_url-label"> {customizeT(inputPrompt.base_url)} </FormHelperText>
                     )}
                   </FormControl>
                 )}
 
                 {inputPrompt.other && (
-                  <FormControl fullWidth error={Boolean(touched.other && errors.other)} sx={{ ...theme.typography.otherInput }}>
+                  <FormControl fullWidth error={Boolean(touched.other && errors.other)}
+                               sx={{ ...theme.typography.otherInput }}>
                     <InputLabel htmlFor="channel-other-label">{customizeT(inputLabel.other)}</InputLabel>
                     <OutlinedInput
                       id="channel-other-label"
@@ -1224,7 +1228,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
                     <FormHelperText id="helper-tex-channel-key-label">
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span>{customizeT(inputPrompt.key)}</span>
-                        {channelId === 0 && values.type !== 42 && values.type !== 57 && (
+                        {channelId === 0 && (
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                             <Switch
                               size="small"
@@ -1279,9 +1283,9 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
                     <MapInput
                       mapValue={values.model_mapping}
                       onChange={(newValue) => {
-                        setFieldValue('model_mapping', newValue);
+                        setFieldValue('model_mapping', newValue)
                         // 实时同步模型重定向到模型配置
-                        syncModelMappingToModels(newValue, values.models, setFieldValue);
+                        syncModelMappingToModels(newValue, values.models, setFieldValue)
                       }}
                       disabled={hasTag}
                       error={Boolean(touched.model_mapping && errors.model_mapping)}
@@ -1519,7 +1523,8 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
                       }
                       label={customizeT(inputLabel.compatible_response)}
                     />
-                    <FormHelperText id="helper-tex-compatible_response-label">{customizeT(inputPrompt.compatible_response)}</FormHelperText>
+                    <FormHelperText
+                      id="helper-tex-compatible_response-label">{customizeT(inputPrompt.compatible_response)}</FormHelperText>
                   </FormControl>
                 )}
                 {pluginList[values.type] &&
