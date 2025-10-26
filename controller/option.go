@@ -125,6 +125,54 @@ func UpdateOption(c *gin.Context) {
 			})
 			return
 		}
+	case "QuotaForNewUser":
+		value, err := strconv.Atoi(option.Value)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "新用户初始额度必须是整数",
+			})
+			return
+		}
+		if value < 0 {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "新用户初始额度不能为负数",
+			})
+			return
+		}
+	case "QuotaForInviter":
+		value, err := strconv.Atoi(option.Value)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "邀请人额度奖励必须是整数",
+			})
+			return
+		}
+		if value < 0 {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "邀请人额度奖励不能为负数",
+			})
+			return
+		}
+	case "QuotaForInvitee":
+		value, err := strconv.Atoi(option.Value)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "新用户使用邀请码额度奖励必须是整数",
+			})
+			return
+		}
+		if value < 0 {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "新用户使用邀请码额度奖励不能为负数",
+			})
+			return
+		}
 	case "InviterRewardValue":
 		value, err := strconv.Atoi(option.Value)
 		if err != nil {

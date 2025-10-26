@@ -22,10 +22,12 @@ import {
   FormControl,
   FormControlLabel,
   FormHelperText,
+  IconButton,
   InputLabel,
   MenuItem,
   OutlinedInput,
   Select,
+  Stack,
   Switch,
   TextField,
   Tooltip,
@@ -1143,50 +1145,85 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
                 </FormControl>
                 <Container
                   sx={{
-                    textAlign: 'right'
+                    textAlign: isMobile ? 'center' : 'right',
+                    p: 0
                   }}
                 >
-                  <ButtonGroup variant="outlined" aria-label="small outlined primary button group">
-                    <Button
-                      size="small"
-                      onClick={() => {
-                        const modelString = values.models.map((model) => model.id).join(',')
-                        copy(modelString)
-                      }}
+                  {!isMobile ? (
+                    <ButtonGroup
+                      variant="outlined"
+                      aria-label="small outlined primary button group"
                     >
-                      {isMobile ? <Icon icon="mdi:content-copy"/> : t('channel_edit.copyModels')}
-                    </Button>
-                    <Button
-                      disabled={hasTag}
-                      size="small"
-                      onClick={() => {
-                        setFieldValue('models', basicModels(values.type))
-                      }}
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          const modelString = values.models.map((model) => model.id).join(',')
+                          copy(modelString)
+                        }}
+                      >
+                        {t('channel_edit.copyModels')}
+                      </Button>
+                      <Button
+                        disabled={hasTag}
+                        size="small"
+                        onClick={() => {
+                          setFieldValue('models', basicModels(values.type))
+                        }}
+                      >
+                        {t('channel_edit.inputChannelModel')}
+                      </Button>
+                      {inputLabel.provider_models_list && (
+                        <Tooltip title={customizeT(inputPrompt.provider_models_list)} placement="top">
+                          <Button
+                            disabled={hasTag}
+                            size="small"
+                            onClick={openModelSelector}
+                            startIcon={<Icon icon="mdi:cloud-download"/>}
+                          >
+                            {customizeT(inputLabel.provider_models_list)}
+                          </Button>
+                        </Tooltip>
+                      )}
+                    </ButtonGroup>
+                  ) : (
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      divider={<Divider orientation="vertical" flexItem/>}
+                      justifyContent="space-around"
+                      alignItems="center"
                     >
-                      {isMobile ? <Icon icon="mdi:playlist-plus"/> : t('channel_edit.inputChannelModel')}
-                    </Button>
-                    {/* <Button
-                      disabled={hasTag}
-                      size="small"
-                      onClick={() => {
-                        setFieldValue('models', modelOptions);
-                      }}
-                    >
-                      {t('channel_edit.inputAllModel')}
-                    </Button> */}
-                    {inputLabel.provider_models_list && (
-                      <Tooltip title={customizeT(inputPrompt.provider_models_list)} placement="top">
-                        <Button
-                          disabled={hasTag}
-                          size="small"
-                          onClick={openModelSelector}
-                          startIcon={!isMobile && <Icon icon="mdi:cloud-download"/>}
-                        >
-                          {isMobile ? <Icon icon="mdi:cloud-download"/> : customizeT(inputLabel.provider_models_list)}
-                        </Button>
-                      </Tooltip>
-                    )}
-                  </ButtonGroup>
+                      <IconButton
+                        size="small"
+                        onClick={() => {
+                          const modelString = values.models.map((model) => model.id).join(',')
+                          copy(modelString)
+                        }}
+                      >
+                        <Icon icon="mdi:content-copy"/>
+                      </IconButton>
+                      <IconButton
+                        disabled={hasTag}
+                        size="small"
+                        onClick={() => {
+                          setFieldValue('models', basicModels(values.type))
+                        }}
+                      >
+                        <Icon icon="mdi:playlist-plus"/>
+                      </IconButton>
+                      {inputLabel.provider_models_list && (
+                        <Tooltip title={customizeT(inputPrompt.provider_models_list)} placement="top">
+                          <IconButton
+                            disabled={hasTag}
+                            size="small"
+                            onClick={openModelSelector}
+                          >
+                            <Icon icon="mdi:cloud-download"/>
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                    </Stack>
+                  )}
                 </Container>
                 <FormControl fullWidth error={Boolean(touched.key && errors.key)}
                              sx={{ ...theme.typography.otherInput }}>

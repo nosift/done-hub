@@ -32,13 +32,13 @@ const originalKeyword = {
   type: 0,
   status: 0,
   name: '',
-  group: '',
+  group: 'all',
   models: '',
   key: '',
   test_model: '',
   other: '',
   filter_tag: 0,
-  tag: '',
+  tag: 'all',
   base_url: ''
 }
 
@@ -346,6 +346,14 @@ export default function ChannelList() {
       delete keyword._timestamp
     }
 
+    // 将 group 和 tag 的 'all' 转换为空字符串
+    if (keyword.group === 'all') {
+      keyword.group = ''
+    }
+    if (keyword.tag === 'all') {
+      keyword.tag = ''
+    }
+
     const data = await fetchChannelData(page, rowsPerPage, keyword, order, orderBy)
 
     if (data) {
@@ -645,71 +653,62 @@ export default function ChannelList() {
                 </ButtonGroup>
               </Box>
             ) : (
-              <Stack
-                direction="row"
-                spacing={0.5}
-                divider={<Divider orientation="vertical" flexItem/>}
-                justifyContent="space-around"
-                alignItems="center"
-                sx={{
-                  overflow: 'auto',
-                  minWidth: 'max-content',
-                  '&::-webkit-scrollbar': {
-                    height: '4px'
-                  },
-                  '&::-webkit-scrollbar-thumb': {
-                    backgroundColor: 'rgba(0,0,0,0.2)',
-                    borderRadius: '2px'
-                  }
-                }}
-              >
-                <IconButton onClick={() => handleRefresh(true)} size="large">
-                  <Icon width={20} icon="solar:refresh-circle-bold-duotone"/>
-                </IconButton>
-                <IconButton
-                  onClick={searchChannels}
-                  size="large"
-                  sx={{
-                    ...(searching && {
-                      bgcolor: 'action.hover',
-                      color: 'primary.main'
-                    })
-                  }}
+              <Container maxWidth="xl">
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  divider={<Divider orientation="vertical" flexItem/>}
+                  justifyContent="space-around"
+                  alignItems="center"
                 >
-                  {searching ? (
-                    <Icon
-                      width={20}
-                      icon="solar:refresh-bold-duotone"
-                      style={{
-                        animation: 'spin 1s linear infinite',
-                        color: '#1976d2'
-                      }}
-                    />
-                  ) : (
-                    <Icon width={20} icon="solar:magnifer-bold-duotone"/>
-                  )}
-                </IconButton>
-                <IconButton onClick={() => handlePopoverOpen(t('channel_index.testAllChannels'), testAllChannels)}
-                            size="large">
-                  <Icon width={20} icon="solar:test-tube-bold-duotone"/>
-                </IconButton>
-                <IconButton
-                  onClick={() => handlePopoverOpen(t('channel_index.updateEnabledBalance'), updateAllChannelsBalance)}
-                  size="large"
-                >
-                  <Icon width={20} icon="solar:dollar-minimalistic-bold-duotone"/>
-                </IconButton>
-                <IconButton
-                  onClick={() => handlePopoverOpen(t('channel_index.deleteDisabledChannels'), deleteAllDisabledChannels)}
-                  size="large"
-                >
-                  <Icon width={20} icon="solar:trash-bin-trash-bold-duotone"/>
-                </IconButton>
-                <IconButton onClick={handleBatchDelete} disabled={selectedChannels.length === 0} size="large"
-                            color="error">
-                  <Icon width={20} icon="solar:trash-bin-2-bold-duotone"/>
-                </IconButton>
-              </Stack>
+                  <IconButton onClick={() => handleRefresh(true)} size="small">
+                    <Icon icon="solar:refresh-circle-bold-duotone" width={18}/>
+                  </IconButton>
+                  <IconButton
+                    onClick={searchChannels}
+                    size="small"
+                    sx={{
+                      ...(searching && {
+                        bgcolor: 'action.hover',
+                        color: 'primary.main'
+                      })
+                    }}
+                  >
+                    {searching ? (
+                      <Icon
+                        icon="solar:refresh-bold-duotone"
+                        width={18}
+                        style={{
+                          animation: 'spin 1s linear infinite',
+                          color: '#1976d2'
+                        }}
+                      />
+                    ) : (
+                      <Icon icon="solar:magnifer-bold-duotone" width={18}/>
+                    )}
+                  </IconButton>
+                  <IconButton onClick={() => handlePopoverOpen(t('channel_index.testAllChannels'), testAllChannels)}
+                              size="small">
+                    <Icon icon="solar:test-tube-bold-duotone" width={18}/>
+                  </IconButton>
+                  <IconButton
+                    onClick={() => handlePopoverOpen(t('channel_index.updateEnabledBalance'), updateAllChannelsBalance)}
+                    size="small"
+                  >
+                    <Icon icon="solar:dollar-minimalistic-bold-duotone" width={18}/>
+                  </IconButton>
+                  <IconButton
+                    onClick={() => handlePopoverOpen(t('channel_index.deleteDisabledChannels'), deleteAllDisabledChannels)}
+                    size="small"
+                  >
+                    <Icon icon="solar:trash-bin-trash-bold-duotone" width={18}/>
+                  </IconButton>
+                  <IconButton onClick={handleBatchDelete} disabled={selectedChannels.length === 0} size="small"
+                              color="error">
+                    <Icon icon="solar:trash-bin-2-bold-duotone" width={18}/>
+                  </IconButton>
+                </Stack>
+              </Container>
             )}
           </Box>
         </Toolbar>

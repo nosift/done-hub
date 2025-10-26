@@ -241,6 +241,9 @@ export default function TableToolBar({ filterName, handleFilterName, groupOption
               }
             }}
           >
+            <MenuItem key="all" value="all">
+              {t('channel_index.all')}
+            </MenuItem>
             {groupOptions.map((option) => {
               return (
                 <MenuItem key={option} value={option}>
@@ -299,6 +302,9 @@ export default function TableToolBar({ filterName, handleFilterName, groupOption
               }
             }}
           >
+            <MenuItem key="all" value="all">
+              {t('channel_index.all')}
+            </MenuItem>
             {tags.map((option) => {
               return (
                 <MenuItem key={option.tag} value={option.tag}>

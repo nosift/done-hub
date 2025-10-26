@@ -167,10 +167,12 @@ const OperationSetting = () => {
         getOptions()
         await loadStatus()
       } else {
-        showError(message)
+        // 不在这里显示错误，而是抛出异常让调用者处理
+        throw new Error(message)
       }
     } catch (error) {
-      return
+      setLoading(false)
+      throw error
     }
 
     setLoading(false)
@@ -180,8 +182,12 @@ const OperationSetting = () => {
     let { name, value } = event.target
 
     if (name.endsWith('Enabled')) {
-      await updateOption(name, value)
-      showSuccess('设置成功！')
+      try {
+        await updateOption(name, value)
+        showSuccess('设置成功！')
+      } catch (error) {
+        showError(error.message || '设置失败')
+      }
     } else {
       setInputs((inputs) => ({ ...inputs, [name]: value }))
     }
@@ -887,6 +893,7 @@ const OperationSetting = () => {
                 id="QuotaForNewUser"
                 name="QuotaForNewUser"
                 type="number"
+                inputProps={{ step: 1, min: 0 }}
                 value={inputs.QuotaForNewUser}
                 onChange={handleInputChange}
                 label={t('setting_index.operationSettings.quotaSettings.quotaForNewUser.label')}
@@ -902,6 +909,7 @@ const OperationSetting = () => {
                 id="PreConsumedQuota"
                 name="PreConsumedQuota"
                 type="number"
+                inputProps={{ step: 1, min: 0 }}
                 value={inputs.PreConsumedQuota}
                 onChange={handleInputChange}
                 label={t('setting_index.operationSettings.quotaSettings.preConsumedQuota.label')}
@@ -916,6 +924,7 @@ const OperationSetting = () => {
                 id="QuotaForInviter"
                 name="QuotaForInviter"
                 type="number"
+                inputProps={{ step: 1, min: 0 }}
                 label={t('setting_index.operationSettings.quotaSettings.quotaForInviter.label')}
                 value={inputs.QuotaForInviter}
                 onChange={handleInputChange}
@@ -976,6 +985,7 @@ const OperationSetting = () => {
                 id="QuotaForInvitee"
                 name="QuotaForInvitee"
                 type="number"
+                inputProps={{ step: 1, min: 0 }}
                 label={t('setting_index.operationSettings.quotaSettings.quotaForInvitee.label')}
                 value={inputs.QuotaForInvitee}
                 onChange={handleInputChange}
