@@ -27,16 +27,14 @@ func (gd *GroupDistributor) SetupGroups() error {
 	tokenGroup := gd.context.GetString("token_group")
 	backupGroup := gd.context.GetString("token_backup_group")
 
-	// 统一分组优先级逻辑
-	effectiveGroup := gd.determineEffectiveGroup(tokenGroup, backupGroup, userGroup)
-	gd.context.Set("token_group", effectiveGroup)
-
-	// 设置分组比例
-	return gd.setGroupRatio(effectiveGroup)
+	// 初始设置分组比例（使用第一优先级分组）
+	// 注意：实际使用的分组可能会在relay层根据渠道可用性动态调整
+	initialGroup := gd.getInitialGroup(tokenGroup, backupGroup, userGroup)
+	return gd.setGroupRatio(initialGroup)
 }
 
-// determineEffectiveGroup 确定有效的分组
-func (gd *GroupDistributor) determineEffectiveGroup(tokenGroup, backupGroup, userGroup string) string {
+// getInitialGroup 获取初始分组（用于设置初始倍率）
+func (gd *GroupDistributor) getInitialGroup(tokenGroup, backupGroup, userGroup string) string {
 	if tokenGroup != "" {
 		return tokenGroup
 	}

@@ -264,10 +264,30 @@ func applyPreMappingBeforeRequest(c *gin.Context) {
 		return
 	}
 
+	// 保存原始的 context 值，避免被 GetProvider 修改
+	originalTokenGroup := c.GetString("token_group")
+	originalBackupGroup := c.GetString("token_backup_group")
+	originalGroup := c.GetString("group")
+	originalGroupRatio := c.GetFloat64("group_ratio")
+
 	provider, _, err := GetProvider(c, requestBody.Model)
 	if err != nil {
 		return
 	}
+
+	// 恢复原始的 context 值，避免影响后续的 setProvider 调用
+	c.Set("token_group", originalTokenGroup)
+	c.Set("token_backup_group", originalBackupGroup)
+	c.Set("group", originalGroup)
+	c.Set("group_ratio", originalGroupRatio)
+	// 清除 GetProvider 设置的其他字段
+	c.Set("original_token_group", nil)
+	c.Set("is_backupGroup", nil)
+	c.Set("channel_id", nil)
+	c.Set("channel_type", nil)
+	c.Set("original_model", nil)
+	c.Set("new_model", nil)
+	c.Set("billing_original_model", nil)
 
 	customParams, err := provider.CustomParameterHandler()
 	if err != nil || customParams == nil {

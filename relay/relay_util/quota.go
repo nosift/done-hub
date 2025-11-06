@@ -51,8 +51,18 @@ func NewQuota(c *gin.Context, modelName string, promptTokens int) *Quota {
 	}
 
 	quota.price = *model.PricingInstance.GetPrice(quota.modelName)
-	quota.groupName = c.GetString("token_group")
-	quota.backupGroupName = c.GetString("token_backup_group")
+
+	// 记录分组信息用于日志
+	if isBackupGroup {
+		// 发生了降级：记录原始分组 → 实际使用的分组
+		quota.groupName = c.GetString("original_token_group") // 降级链的起点
+		quota.backupGroupName = c.GetString("token_group")    // 实际使用的分组
+	} else {
+		// 没有降级：只记录使用的分组
+		quota.groupName = c.GetString("token_group")
+		quota.backupGroupName = ""
+	}
+
 	quota.groupRatio = c.GetFloat64("group_ratio") // 这里的倍率已经在 common.go 中正确设置了
 	quota.inputRatio = quota.price.GetInput() * quota.groupRatio
 	quota.outputRatio = quota.price.GetOutput() * quota.groupRatio

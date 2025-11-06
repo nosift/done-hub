@@ -105,6 +105,33 @@ func CheckLimitModel(c *gin.Context, modelName string) error {
 	return fmt.Errorf("当前令牌不支持模型: %s", modelName)
 }
 
+// buildGroupChain 构建分组降级链
+func buildGroupChain(tokenGroup, backupGroup, userGroup string) []string {
+	var chain []string
+
+	// 如果Token配置了主分组或备用分组，只使用Token配置的分组
+	if tokenGroup != "" || backupGroup != "" {
+		// 添加主分组
+		if tokenGroup != "" {
+			chain = append(chain, tokenGroup)
+		}
+
+		// 添加备用分组（如果与主分组不同）
+		if backupGroup != "" && backupGroup != tokenGroup {
+			chain = append(chain, backupGroup)
+		}
+
+		return chain
+	}
+
+	// 只有Token完全没配置分组时，才使用用户分组作为兜底
+	if userGroup != "" {
+		chain = append(chain, userGroup)
+	}
+
+	return chain
+}
+
 func GetProvider(c *gin.Context, modelName string) (provider providersBase.ProviderInterface, newModelName string, fail error) {
 	// 检查令牌模型限制
 	err := CheckLimitModel(c, modelName)
@@ -112,32 +139,74 @@ func GetProvider(c *gin.Context, modelName string) (provider providersBase.Provi
 		return nil, "", err
 	}
 
-	// 首先尝试获取匹配的模型名称（处理大小写不敏感）
-	groupName := c.GetString("token_group")
-	if groupName == "" {
-		groupName = c.GetString("group")
-	}
+	// 获取分组信息
+	tokenGroup := c.GetString("token_group")
+	backupGroup := c.GetString("token_backup_group")
+	userGroup := c.GetString("group")
 
-	if groupName == "" {
+	// 构建分组降级链：主分组 -> 备用分组 -> 用户分组
+	groupChain := buildGroupChain(tokenGroup, backupGroup, userGroup)
+
+	if len(groupChain) == 0 {
 		common.AbortWithMessage(c, http.StatusServiceUnavailable, "分组不存在")
 		return
 	}
 
-	matchedModelName, err := model.ChannelGroup.GetMatchedModelName(groupName, modelName)
-	if err != nil {
-		fail = err
+	// 保存原始的第一优先级分组（用于日志记录）
+	originalGroup := groupChain[0]
+
+	// 尝试每个分组，直到成功获取渠道
+	var lastErr error
+	var actualModelName string
+	var channel *model.Channel
+	var usedGroup string
+	var isBackupGroup bool
+
+	for i, groupName := range groupChain {
+		matchedModelName, err := model.ChannelGroup.GetMatchedModelName(groupName, modelName)
+		if err != nil {
+			lastErr = err
+			continue // 尝试下一个分组
+		}
+
+		actualModelName = matchedModelName
+
+		// 临时设置当前分组用于获取渠道
+		c.Set("token_group", groupName)
+		channel, err = fetchChannel(c, actualModelName)
+		if err != nil {
+			lastErr = err
+			continue // 尝试下一个分组
+		}
+
+		// 成功获取渠道
+		usedGroup = groupName
+		isBackupGroup = (i > 0) // 如果不是第一个分组，说明使用了降级分组
+
+		break
+	}
+
+	// 所有分组都失败
+	if channel == nil {
+		fail = lastErr
+		if fail == nil {
+			fail = errors.New("所有分组都无可用渠道")
+		}
 		return
 	}
 
-	// 如果匹配到了不同的模型名称，使用匹配到的名称进行后续处理
-	actualModelName := matchedModelName
-
-	channel, fail := fetchChannel(c, actualModelName)
-	if fail != nil {
-		return
-	}
+	// 设置最终使用的分组和相关信息
+	c.Set("token_group", usedGroup)
+	c.Set("original_token_group", originalGroup) // 保存原始第一优先级分组，用于日志记录
+	c.Set("is_backupGroup", isBackupGroup)
 	c.Set("channel_id", channel.Id)
 	c.Set("channel_type", channel.Type)
+
+	// 重新设置分组倍率
+	groupRatio := model.GlobalUserGroupRatio.GetBySymbol(usedGroup)
+	if groupRatio != nil {
+		c.Set("group_ratio", groupRatio.Ratio)
+	}
 
 	provider = providers.GetProvider(channel, c)
 	if provider == nil {
