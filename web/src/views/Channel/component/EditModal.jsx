@@ -352,10 +352,8 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
 
   // GeminiCli OAuth 授权处理
   const handleGeminiCliOAuth = async(projectId, setFieldValue) => {
-    if (!projectId || projectId.trim() === '') {
-      showError('请先填写 Project ID')
-      return
-    }
+    // 允许 projectId 为空，支持自动检测
+    const trimmedProjectId = projectId ? projectId.trim() : ''
 
     try {
       setOauthLoading(true)
@@ -364,7 +362,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
       // 调用后端 API 生成授权 URL
       const res = await API.post('/api/geminicli/oauth/start', {
         channel_id: channelId || 0,
-        project_id: projectId.trim()
+        project_id: trimmedProjectId
       })
 
       if (!res.data.success) {
@@ -1288,7 +1286,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
                         variant="outlined"
                         color="primary"
                         fullWidth
-                        disabled={oauthLoading || !values.other}
+                        disabled={oauthLoading}
                         onClick={() => handleGeminiCliOAuth(values.other, setFieldValue)}
                         startIcon={oauthLoading ? null : <Icon icon="mdi:google"/>}
                       >
@@ -1306,7 +1304,15 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
                       </Button>
                     </Box>
                     <Alert severity="info" sx={{ mt: 1 }}>
-                      授权后会跳转到 localhost:8080，请在浏览器地址栏中将 localhost:8080 改为当前服务的域名后刷新访问完成授权
+                      {values.other ? (
+                        <>授权后会跳转到 localhost:8080，请在浏览器地址栏中将 localhost:8080 改为当前服务的域名后刷新访问完成授权</>
+                      ) : (
+                        <>
+                          <strong>Project ID 未填写，将自动检测可用项目。</strong>
+                          <br />
+                          授权后会跳转到 localhost:8080，请在浏览器地址栏中将 localhost:8080 改为当前服务的域名后刷新访问完成授权
+                        </>
+                      )}
                     </Alert>
                   </Box>
                 )}

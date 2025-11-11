@@ -48,7 +48,7 @@ type OAuthResultData struct {
 // StartGeminiCliOAuthRequest 开始 OAuth 认证请求
 type StartGeminiCliOAuthRequest struct {
 	ChannelID int    `json:"channel_id"` // 可选，新建时为 0
-	ProjectID string `json:"project_id" binding:"required"`
+	ProjectID string `json:"project_id"` // 可选，为空时自动检测
 }
 
 // StartGeminiCliOAuth 开始 GeminiCli OAuth 认证流程
@@ -101,11 +101,20 @@ func StartGeminiCliOAuth(c *gin.Context) {
 
 	authURL := "https://accounts.google.com/o/oauth2/auth?" + params.Encode()
 
+	message := "请在浏览器中访问 auth_url 完成授权"
+	autoDetect := false
+	if req.ProjectID == "" {
+		message = "请在浏览器中访问 auth_url 完成授权，授权完成后将自动检测项目 ID"
+		autoDetect = true
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"success":  true,
-		"auth_url": authURL,
-		"state":    state,
-		"message":  "请在浏览器中访问 auth_url 完成授权",
+		"success":             true,
+		"auth_url":            authURL,
+		"state":               state,
+		"message":             message,
+		"auto_project_detect": autoDetect,
+		"detected_project_id": req.ProjectID,
 	})
 }
 
@@ -217,13 +226,59 @@ func GeminiCliOAuthCallback(c *gin.Context) {
 		return
 	}
 
+	// 确定项目 ID
+	projectID := stateData.ProjectID
+	autoDetected := false
+
+	// 如果没有提供项目 ID，尝试自动检测
+	if projectID == "" {
+		logger.SysLog("Project ID 未提供，尝试自动检测...")
+		projects, err := getUserProjects(tokenResp.AccessToken)
+		if err != nil {
+			logger.SysError(fmt.Sprintf("Failed to get user projects: %s", err.Error()))
+
+			// 保存错误结果到缓存
+			resultCacheKey := OAuthResultCachePrefix + state
+			resultData := OAuthResultData{
+				Success:     false,
+				Message:     fmt.Sprintf("自动检测项目 ID 失败: %s。请手动填写 Project ID 后重新授权", err.Error()),
+				CompletedAt: time.Now().Unix(),
+			}
+			cache.SetCache(resultCacheKey, resultData, OAuthResultCacheDuration)
+
+			renderOAuthResult(c, false, fmt.Sprintf("自动检测项目 ID 失败: %s。请手动填写 Project ID 后重新授权", err.Error()), "", "", state)
+			return
+		}
+
+		if len(projects) == 0 {
+			logger.SysError("No accessible projects found")
+
+			// 保存错误结果到缓存
+			resultCacheKey := OAuthResultCachePrefix + state
+			resultData := OAuthResultData{
+				Success:     false,
+				Message:     "未检测到可访问的项目，请检查权限或手动填写 Project ID 后重新授权",
+				CompletedAt: time.Now().Unix(),
+			}
+			cache.SetCache(resultCacheKey, resultData, OAuthResultCacheDuration)
+
+			renderOAuthResult(c, false, "未检测到可访问的项目，请检查权限或手动填写 Project ID 后重新授权", "", "", state)
+			return
+		}
+
+		// 选择默认项目
+		projectID = selectDefaultProject(projects)
+		autoDetected = true
+		logger.SysLog(fmt.Sprintf("自动检测到项目 ID: %s (共 %d 个可用项目)", projectID, len(projects)))
+	}
+
 	// 构建完整的凭证
 	creds := geminicli.OAuth2Credentials{
 		AccessToken:  tokenResp.AccessToken,
 		RefreshToken: tokenResp.RefreshToken,
 		ClientID:     geminicli.DefaultClientID,
 		ClientSecret: geminicli.DefaultClientSecret,
-		ProjectID:    stateData.ProjectID,
+		ProjectID:    projectID,
 		TokenType:    tokenResp.TokenType,
 	}
 
@@ -252,24 +307,30 @@ func GeminiCliOAuthCallback(c *gin.Context) {
 
 	// 自动启用必需的 API 服务（异步执行，不阻塞响应）
 	go func() {
-		if err := enableRequiredAPIs(tokenResp.AccessToken, stateData.ProjectID); err != nil {
-			logger.SysError(fmt.Sprintf("Failed to enable required APIs for project %s: %s", stateData.ProjectID, err.Error()))
+		if err := enableRequiredAPIs(tokenResp.AccessToken, projectID); err != nil {
+			logger.SysError(fmt.Sprintf("Failed to enable required APIs for project %s: %s", projectID, err.Error()))
 		}
 	}()
+
+	// 构建成功消息
+	successMessage := "授权成功"
+	if autoDetected {
+		successMessage = fmt.Sprintf("授权成功！已自动检测并使用项目 ID: %s", projectID)
+	}
 
 	// 保存结果到缓存，供前端轮询
 	resultCacheKey := OAuthResultCachePrefix + state
 	resultData := OAuthResultData{
 		Success:     true,
-		Message:     "授权成功",
-		ProjectID:   stateData.ProjectID,
+		Message:     successMessage,
+		ProjectID:   projectID,
 		Credentials: credsJSON,
 		CompletedAt: time.Now().Unix(),
 	}
 	cache.SetCache(resultCacheKey, resultData, OAuthResultCacheDuration)
 
 	// 返回 HTML 页面，通过 postMessage 发送凭证给父窗口（如果有的话）
-	renderOAuthResult(c, true, "授权成功！", stateData.ProjectID, credsJSON, state)
+	renderOAuthResult(c, true, successMessage, projectID, credsJSON, state)
 }
 
 // renderOAuthResult 渲染 OAuth 结果页面
@@ -594,4 +655,80 @@ func exchangeCodeForToken(code, redirectURI string) (*geminicli.TokenRefreshResp
 	}
 
 	return &tokenResp, nil
+}
+
+// GoogleCloudProject Google Cloud 项目信息
+type GoogleCloudProject struct {
+	ProjectID      string `json:"projectId"`
+	ProjectNumber  string `json:"projectNumber"`
+	DisplayName    string `json:"name"`
+	LifecycleState string `json:"lifecycleState"`
+}
+
+// GoogleCloudProjectsResponse Google Cloud 项目列表响应
+type GoogleCloudProjectsResponse struct {
+	Projects []GoogleCloudProject `json:"projects"`
+}
+
+// getUserProjects 获取用户可访问的 Google Cloud 项目列表
+func getUserProjects(accessToken string) ([]GoogleCloudProject, error) {
+	req, err := http.NewRequest("GET", "https://cloudresourcemanager.googleapis.com/v1/projects", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("User-Agent", "geminicli-oauth/1.0")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get projects: %d - %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var projectsResp GoogleCloudProjectsResponse
+	if err := json.Unmarshal(bodyBytes, &projectsResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	// 只返回活跃的项目
+	activeProjects := make([]GoogleCloudProject, 0)
+	for _, project := range projectsResp.Projects {
+		if project.LifecycleState == "ACTIVE" {
+			activeProjects = append(activeProjects, project)
+		}
+	}
+
+	return activeProjects, nil
+}
+
+// selectDefaultProject 从项目列表中选择默认项目
+func selectDefaultProject(projects []GoogleCloudProject) string {
+	if len(projects) == 0 {
+		return ""
+	}
+
+	// 策略1：查找包含 "default" 的项目
+	for _, project := range projects {
+		if strings.Contains(strings.ToLower(project.DisplayName), "default") ||
+			strings.Contains(strings.ToLower(project.ProjectID), "default") {
+			logger.SysLog(fmt.Sprintf("选择默认项目: %s (%s)", project.ProjectID, project.DisplayName))
+			return project.ProjectID
+		}
+	}
+
+	// 策略2：选择第一个项目
+	firstProject := projects[0]
+	logger.SysLog(fmt.Sprintf("选择第一个项目作为默认: %s (%s)", firstProject.ProjectID, firstProject.DisplayName))
+	return firstProject.ProjectID
 }
