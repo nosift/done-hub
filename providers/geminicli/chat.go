@@ -96,7 +96,7 @@ func (p *GeminiCliProvider) getChatRequest(geminiRequest *gemini.GeminiChatReque
 	}
 
 	// 只有在 relay 模式下才清理数据（与 gemini provider 保持一致）
-	var requestBody any
+	var geminiRequestBody any
 	if isRelay {
 		// 使用原始请求体（避免序列化/反序列化导致数据丢失）
 		rawData, exists := p.GetRawBody()
@@ -147,22 +147,54 @@ func (p *GeminiCliProvider) getChatRequest(geminiRequest *gemini.GeminiChatReque
 
 		delete(rawMap, "model")
 
-		// 包装为 GeminiCliRequest 格式
-		requestBody = map[string]interface{}{
-			"model":   geminiRequest.Model,
-			"project": p.ProjectID,
-			"request": rawMap,
-		}
+		// 使用清理后的原始数据作为 Gemini 请求体
+		geminiRequestBody = rawMap
 	} else {
-		requestBody = &GeminiCliRequest{
-			Model:   geminiRequest.Model,
-			Project: p.ProjectID,
-			Request: geminiRequest,
-		}
+		geminiRequestBody = geminiRequest
 	}
 
 	if isStream {
 		fullRequestURL += "?alt=sse"
+	}
+
+	// 处理额外参数
+	customParams, err := p.CustomParameterHandler()
+	if err != nil {
+		return nil, common.ErrorWrapper(err, "custom_parameter_error", http.StatusInternalServerError)
+	}
+
+	// 如果有额外参数，将其合并到 Gemini 请求体中
+	var finalGeminiRequest any = geminiRequestBody
+	if customParams != nil {
+		// 将 Gemini 请求体转换为 map，以便添加额外参数
+		var geminiRequestMap map[string]interface{}
+
+		// 检查 geminiRequestBody 是否已经是 map 类型
+		if rawMap, ok := geminiRequestBody.(map[string]interface{}); ok {
+			geminiRequestMap = rawMap
+		} else {
+			// 否则进行 JSON 编码
+			requestBytes, err := json.Marshal(geminiRequestBody)
+			if err != nil {
+				return nil, common.ErrorWrapper(err, "marshal_request_failed", http.StatusInternalServerError)
+			}
+
+			err = json.Unmarshal(requestBytes, &geminiRequestMap)
+			if err != nil {
+				return nil, common.ErrorWrapper(err, "unmarshal_request_failed", http.StatusInternalServerError)
+			}
+		}
+
+		// 处理自定义额外参数
+		geminiRequestMap = p.MergeCustomParams(geminiRequestMap, customParams, geminiRequest.Model)
+		finalGeminiRequest = geminiRequestMap
+	}
+
+	// 包装为 GeminiCliRequest 格式
+	requestBody := map[string]interface{}{
+		"model":   geminiRequest.Model,
+		"project": p.ProjectID,
+		"request": finalGeminiRequest,
 	}
 
 	// 创建请求
