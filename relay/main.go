@@ -91,7 +91,7 @@ func Relay(c *gin.Context) {
 
 	// 记录初始失败 - 使用OpenAI风格的结构化日志
 	logger.LogError(c.Request.Context(), fmt.Sprintf("retry_start model=%s total_channels=%d config_max_retries=%d actual_max_retries=%d initial_error=\"%s\" status_code=%d",
-		modelName, totalChannelsAtStart, retryTimes, actualRetryTimes, apiErr.OpenAIError.Message, apiErr.StatusCode))
+		modelName, totalChannelsAtStart, retryTimes, actualRetryTimes, utils.TruncateBase64InMessage(apiErr.OpenAIError.Message), apiErr.StatusCode))
 
 	if apiErr.StatusCode != http.StatusUnauthorized && apiErr.StatusCode != http.StatusForbidden {
 		c.Set("first_non_auth_error", apiErr)
@@ -143,7 +143,7 @@ func Relay(c *gin.Context) {
 
 		// 记录重试失败
 		logger.LogError(c.Request.Context(), fmt.Sprintf("retry_failed attempt=%d/%d channel_id=%d status_code=%d error_type=\"%s\" error=\"%s\"",
-			attemptCount, actualRetryTimes, channel.Id, apiErr.StatusCode, apiErr.OpenAIError.Type, apiErr.OpenAIError.Message))
+			attemptCount, actualRetryTimes, channel.Id, apiErr.StatusCode, apiErr.OpenAIError.Type, utils.TruncateBase64InMessage(apiErr.OpenAIError.Message)))
 
 		if apiErr.StatusCode != http.StatusUnauthorized && apiErr.StatusCode != http.StatusForbidden {
 			if _, exists := c.Get("first_non_auth_error"); !exists {
@@ -163,7 +163,7 @@ func Relay(c *gin.Context) {
 	finalAttempt := c.GetInt("attempt_count")
 	actualRetryTimes = c.GetInt("actual_retry_times")
 	logger.LogError(c.Request.Context(), fmt.Sprintf("retry_exhausted total_attempts=%d actual_max_retries=%d config_max_retries=%d final_error=\"%s\" status_code=%d",
-		finalAttempt, actualRetryTimes, retryTimes, apiErr.OpenAIError.Message, apiErr.StatusCode))
+		finalAttempt, actualRetryTimes, retryTimes, utils.TruncateBase64InMessage(apiErr.OpenAIError.Message), apiErr.StatusCode))
 
 	if apiErr != nil {
 		if heartbeat != nil && heartbeat.IsSafeWriteStream() {

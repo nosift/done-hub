@@ -123,27 +123,41 @@ func cleaningError(errorInfo *GeminiError, key string) {
 
 // truncateBase64InMessage 截断错误消息中的 base64 数据
 func truncateBase64InMessage(message string) string {
-	// 匹配 base64 数据的模式，例如: "data:image/jpeg;base64,iVBORw0KGgo..."
-	// 或者直接的 base64 字符串
 	const maxBase64Length = 50 // 只保留前50个字符
 
-	// 处理 data URI 格式的 base64
-	if idx := strings.Index(message, ";base64,"); idx != -1 {
-		start := idx + 8 // ";base64," 的长度
+	result := message
+	offset := 0
+
+	// 循环处理所有的 base64 数据
+	for {
+		// 在当前偏移位置查找下一个 base64 数据
+		idx := strings.Index(result[offset:], ";base64,")
+		if idx == -1 {
+			break
+		}
+
+		// 计算实际位置
+		actualIdx := offset + idx
+		start := actualIdx + 8 // ";base64," 的长度
+
 		// 查找 base64 数据的结束位置（通常是引号、空格或其他分隔符）
 		end := start
-		for end < len(message) && isBase64Char(message[end]) {
+		for end < len(result) && isBase64Char(result[end]) {
 			end++
 		}
 
 		if end-start > maxBase64Length {
 			// 截断 base64 数据
-			truncated := message[:start+maxBase64Length] + "...[truncated]" + message[end:]
-			return truncated
+			result = result[:start+maxBase64Length] + "...[truncated]" + result[end:]
+			// 更新偏移位置，继续查找下一个
+			offset = start + maxBase64Length + len("...[truncated]")
+		} else {
+			// 如果这个 base64 数据不需要截断，移动到下一个位置
+			offset = end
 		}
 	}
 
-	return message
+	return result
 }
 
 // isBase64Char 检查字符是否是 base64 字符

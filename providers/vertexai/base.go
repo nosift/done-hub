@@ -8,6 +8,7 @@ import (
 	"done-hub/common/cache"
 	"done-hub/common/logger"
 	"done-hub/common/requester"
+	"done-hub/common/utils"
 	"done-hub/model"
 	"done-hub/providers/base"
 	"done-hub/providers/vertexai/category"
@@ -211,7 +212,7 @@ func errorHandle(vertexaiError *VertexaiError) *types.OpenAIError {
 		return nil
 	}
 
-	logger.SysError(fmt.Sprintf("VertexAI error: %s", vertexaiError.Error.Message))
+	logger.SysError(fmt.Sprintf("VertexAI error: %s", utils.TruncateBase64InMessage(vertexaiError.Error.Message)))
 
 	return &types.OpenAIError{
 		Message: "VertexAI错误",
