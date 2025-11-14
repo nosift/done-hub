@@ -114,7 +114,41 @@ func cleaningError(errorInfo *GeminiError, key string) {
 		return
 	}
 	message := strings.Replace(errorInfo.Message, key, "xxxxx", 1)
+
+	// 截断 base64 数据，避免日志过长
+	message = truncateBase64InMessage(message)
+
 	errorInfo.Message = message
+}
+
+// truncateBase64InMessage 截断错误消息中的 base64 数据
+func truncateBase64InMessage(message string) string {
+	// 匹配 base64 数据的模式，例如: "data:image/jpeg;base64,iVBORw0KGgo..."
+	// 或者直接的 base64 字符串
+	const maxBase64Length = 50 // 只保留前50个字符
+
+	// 处理 data URI 格式的 base64
+	if idx := strings.Index(message, ";base64,"); idx != -1 {
+		start := idx + 8 // ";base64," 的长度
+		// 查找 base64 数据的结束位置（通常是引号、空格或其他分隔符）
+		end := start
+		for end < len(message) && isBase64Char(message[end]) {
+			end++
+		}
+
+		if end-start > maxBase64Length {
+			// 截断 base64 数据
+			truncated := message[:start+maxBase64Length] + "...[truncated]" + message[end:]
+			return truncated
+		}
+	}
+
+	return message
+}
+
+// isBase64Char 检查字符是否是 base64 字符
+func isBase64Char(c byte) bool {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '/' || c == '='
 }
 
 func (p *GeminiProvider) GetFullRequestURL(requestURL string, modelName string) string {
