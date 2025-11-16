@@ -2,6 +2,7 @@ package geminicli
 
 import (
 	"bytes"
+	"context"
 	"done-hub/common/cache"
 	"done-hub/common/logger"
 	"done-hub/common/requester"
@@ -191,7 +192,55 @@ func cleaningError(errorInfo *gemini.GeminiError, token string) {
 		return
 	}
 	message := strings.Replace(errorInfo.Message, token, "xxxxx", 1)
+
+	// 截断 base64 数据，避免日志过长
+	message = truncateBase64InMessage(message)
+
 	errorInfo.Message = message
+}
+
+// truncateBase64InMessage 截断错误消息中的 base64 数据
+func truncateBase64InMessage(message string) string {
+	const maxBase64Length = 50 // 只保留前50个字符
+
+	result := message
+	offset := 0
+
+	// 循环处理所有的 base64 数据
+	for {
+		// 在当前偏移位置查找下一个 base64 数据
+		idx := strings.Index(result[offset:], ";base64,")
+		if idx == -1 {
+			break
+		}
+
+		// 计算实际位置
+		actualIdx := offset + idx
+		start := actualIdx + 8 // ";base64," 的长度
+
+		// 查找 base64 数据的结束位置（通常是引号、空格或其他分隔符）
+		end := start
+		for end < len(result) && isBase64Char(result[end]) {
+			end++
+		}
+
+		if end-start > maxBase64Length {
+			// 截断 base64 数据
+			result = result[:start+maxBase64Length] + "...[truncated]" + result[end:]
+			// 更新偏移位置，继续查找下一个
+			offset = start + maxBase64Length + len("...[truncated]")
+		} else {
+			// 如果这个 base64 数据不需要截断，移动到下一个位置
+			offset = end
+		}
+	}
+
+	return result
+}
+
+// isBase64Char 检查字符是否是 base64 字符
+func isBase64Char(c byte) bool {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '/' || c == '='
 }
 
 func (p *GeminiCliProvider) GetFullRequestURL(requestURL string, modelName string) string {
@@ -203,7 +252,7 @@ func (p *GeminiCliProvider) GetFullRequestURL(requestURL string, modelName strin
 }
 
 // GetToken 获取访问令牌，支持自动刷新
-// 完全参考 VertexAI 的实现：使用 Redis 缓存，不保存到数据库
+// 使用 Redis 缓存，token 刷新后保存到数据库
 func (p *GeminiCliProvider) GetToken() (string, error) {
 	if p.Credentials == nil {
 		return "", fmt.Errorf("credentials not configured")
@@ -213,17 +262,14 @@ func (p *GeminiCliProvider) GetToken() (string, error) {
 	cacheKey := fmt.Sprintf("%s:%s", TokenCacheKey, p.ProjectID)
 
 	// 1. 尝试从 Redis 缓存获取
-	cachedToken, err := cache.GetCache[string](cacheKey)
-	if err != nil {
-		logger.SysError("Failed to get geminicli token from cache: " + err.Error())
-	}
-
+	cachedToken, _ := cache.GetCache[string](cacheKey)
 	if cachedToken != "" {
 		// 缓存命中，直接返回
 		return cachedToken, nil
 	}
 
 	// 2. 缓存未命中，检查凭证是否过期
+	needsUpdate := false
 	if p.Credentials.IsExpired() && p.Credentials.RefreshToken != "" {
 		// Token 过期且有 refresh_token，尝试刷新
 		proxyURL := ""
@@ -231,11 +277,20 @@ func (p *GeminiCliProvider) GetToken() (string, error) {
 			proxyURL = *p.Channel.Proxy
 		}
 
+		// 获取 context
+		var ctx context.Context
+		if p.Context != nil {
+			ctx = p.Context.Request.Context()
+		}
+
 		// 刷新 token（最多重试 3 次）
-		if err := p.Credentials.Refresh(proxyURL, 3); err != nil {
-			logger.SysError(fmt.Sprintf("Failed to refresh geminicli token: %s", err.Error()))
+		if err := p.Credentials.Refresh(ctx, proxyURL, 3); err != nil {
+			logger.LogError(ctx, fmt.Sprintf("Failed to refresh geminicli token: %s", err.Error()))
 			return "", fmt.Errorf("failed to refresh token: %w", err)
 		}
+
+		// 标记需要更新数据库
+		needsUpdate = true
 	}
 
 	// 3. 使用当前的 access_token
@@ -243,7 +298,20 @@ func (p *GeminiCliProvider) GetToken() (string, error) {
 		return "", fmt.Errorf("access token is empty")
 	}
 
-	// 4. 计算缓存时长（与 VertexAI 保持一致）
+	// 4. 如果 token 被刷新，保存新凭证到数据库
+	if needsUpdate {
+		if err := p.saveCredentialsToDatabase(); err != nil {
+			// 获取 context（如果有）
+			var ctx context.Context
+			if p.Context != nil {
+				ctx = p.Context.Request.Context()
+			}
+			logger.LogError(ctx, fmt.Sprintf("Failed to save refreshed credentials to database: %s", err.Error()))
+			// 不返回错误，因为 token 刷新成功了，只是保存失败
+		}
+	}
+
+	// 5. 计算缓存时长（与 VertexAI 保持一致）
 	// 如果有过期时间，缓存到过期前 5 分钟
 	// 否则默认缓存 30 分钟
 	duration := 30 * time.Minute
@@ -256,10 +324,51 @@ func (p *GeminiCliProvider) GetToken() (string, error) {
 		}
 	}
 
-	// 5. 缓存 token 到 Redis
+	// 6. 缓存 token 到 Redis
 	cache.SetCache(cacheKey, p.Credentials.AccessToken, duration)
 
 	return p.Credentials.AccessToken, nil
+}
+
+// saveCredentialsToDatabase 保存凭证到数据库
+func (p *GeminiCliProvider) saveCredentialsToDatabase() error {
+	// 序列化凭证为 JSON
+	credentialsJSON, err := p.Credentials.ToJSON()
+	if err != nil {
+		return fmt.Errorf("failed to serialize credentials: %w", err)
+	}
+
+	// 更新数据库中的 Key 字段
+	if err := model.UpdateChannelKey(p.Channel.Id, credentialsJSON); err != nil {
+		return fmt.Errorf("failed to update channel key: %w", err)
+	}
+
+	logger.SysLog(fmt.Sprintf("[GeminiCli] Credentials saved to database for channel %d", p.Channel.Id))
+	return nil
+}
+
+// handleTokenError 处理token获取失败的错误
+// Token 刷新失败应该返回 401，触发重试和禁用渠道逻辑
+func (p *GeminiCliProvider) handleTokenError(err error) *types.OpenAIErrorWithStatusCode {
+	errMsg := err.Error()
+
+	// Token 错误统一返回 401 Unauthorized，不设置 LocalError
+	// 这样会触发：
+	// 1. 重试其他渠道
+	// 2. 禁用当前渠道（如果符合禁用条件）
+	// 3. 如果所有渠道都失败，返回"上游负载已饱和"
+	//
+	// 注意：不能使用 StringErrorWrapper，因为它会将 Type 设置为 "one_hub_error"
+	// 我们需要 Type 为 "geminicli_token_error" 以便在 FilterOpenAIErr 中正确过滤
+	return &types.OpenAIErrorWithStatusCode{
+		OpenAIError: types.OpenAIError{
+			Message: errMsg,
+			Type:    "geminicli_token_error",
+			Code:    "geminicli_token_error",
+		},
+		StatusCode: http.StatusUnauthorized,
+		LocalError: false,
+	}
 }
 
 // getRequestHeadersInternal 内部方法，返回请求头和错误信息
@@ -271,7 +380,11 @@ func (p *GeminiCliProvider) getRequestHeadersInternal() (headers map[string]stri
 	// 获取 token（会自动刷新如果过期）
 	token, err := p.GetToken()
 	if err != nil {
-		logger.SysError("Failed to get geminicli token: " + err.Error())
+		if p.Context != nil {
+			logger.LogError(p.Context.Request.Context(), "Failed to get geminicli token: "+err.Error())
+		} else {
+			logger.SysError("Failed to get geminicli token: " + err.Error())
+		}
 		return nil, fmt.Errorf("failed to get token: %w", err)
 	}
 
