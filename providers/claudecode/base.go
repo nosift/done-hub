@@ -64,13 +64,6 @@ func parseClaudeCodeConfig(provider *ClaudeCodeProvider) {
 
 	key := strings.TrimSpace(channel.Key)
 
-	var ctx context.Context
-	if provider.Context != nil {
-		ctx = provider.Context.Request.Context()
-	} else {
-		ctx = context.Background()
-	}
-
 	creds, err := FromJSON(key)
 	if err == nil {
 		provider.Credentials = creds
@@ -83,20 +76,12 @@ func parseClaudeCodeConfig(provider *ClaudeCodeProvider) {
 			provider.Credentials.ExpiresAt = time.Now().Add(1 * time.Hour)
 		}
 
-		if provider.Credentials.RefreshToken != "" {
-			logger.LogInfo(ctx, fmt.Sprintf("[ClaudeCode] Channel %d configured with OAuth credentials (auto-refresh enabled)", channel.Id))
-		} else {
-			logger.LogInfo(ctx, fmt.Sprintf("[ClaudeCode] Channel %d configured with access_token only (no auto-refresh)", channel.Id))
-		}
-
 		return
 	}
 
 	provider.Credentials = &OAuth2Credentials{
 		AccessToken: key,
 	}
-
-	logger.LogInfo(ctx, fmt.Sprintf("[ClaudeCode] Channel %d configured with simple access_token mode (no caching, no refresh)", channel.Id))
 }
 
 type ClaudeCodeProvider struct {

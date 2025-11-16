@@ -562,7 +562,7 @@ const typeConfig = {
       other: ''
     },
     prompt: {
-      key: '请输入完整的 OAuth2 凭证 JSON，或点击下方"OAuth 授权"按钮自动获取',
+      key: '请输入 access_token（sk-ant-sid01-xxx）或完整的 OAuth2 凭证 JSON，也可点击下方"OAuth 授权"按钮自动获取',
       other: ''
     }
   }
