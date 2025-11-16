@@ -510,6 +510,15 @@ func updateChannelUsedQuota(id int, quota int) {
 	}
 }
 
+func UpdateChannelKey(id int, key string) error {
+	err := DB.Model(&Channel{}).Where("id = ?", id).Update("key", key).Error
+	if err != nil {
+		logger.SysError("failed to update channel key: " + err.Error())
+		return err
+	}
+	return nil
+}
+
 func DeleteDisabledChannel() (int64, error) {
 	result := DB.Where("status = ? or status = ?", config.ChannelStatusAutoDisabled, config.ChannelStatusManuallyDisabled).Delete(&Channel{})
 	if result.Error == nil && result.RowsAffected > 0 {

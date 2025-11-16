@@ -45,11 +45,16 @@ func ShouldDisableChannel(channelType int, err *types.OpenAIErrorWithStatusCode)
 		return false
 	}
 
-	// 状态码检查
+	// 状态码检查（优先级最高）
 	if err.StatusCode == http.StatusUnauthorized {
 		return true
 	}
 	if err.StatusCode == http.StatusForbidden && channelType == config.ChannelTypeGemini {
+		return true
+	}
+
+	// 禁用关键词检查
+	if common.DisableChannelKeywordsInstance.IsContains(err.OpenAIError.Message) {
 		return true
 	}
 
@@ -70,7 +75,7 @@ func ShouldDisableChannel(channelType int, err *types.OpenAIErrorWithStatusCode)
 		return true
 	}
 
-	return common.DisableChannelKeywordsInstance.IsContains(err.OpenAIError.Message)
+	return false
 }
 
 // disable & notify

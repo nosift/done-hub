@@ -556,6 +556,15 @@ const typeConfig = {
       key: '请输入完整的 OAuth2 凭证 JSON，或点击下方"OAuth 授权"按钮自动获取',
       other: '请输入 Google Cloud Project ID，例如：my-project-123'
     }
+  },
+  58: {
+    inputLabel: {
+      other: ''
+    },
+    prompt: {
+      key: '请输入完整的 OAuth2 凭证 JSON，或点击下方"OAuth 授权"按钮自动获取',
+      other: ''
+    }
   }
 }
 

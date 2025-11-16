@@ -92,7 +92,7 @@ func (p *GeminiCliProvider) getChatRequest(geminiRequest *gemini.GeminiChatReque
 	// 获取请求头
 	headers, err := p.getRequestHeadersInternal()
 	if err != nil {
-		return nil, common.StringErrorWrapper(err.Error(), "geminicli_token_error", http.StatusUnauthorized)
+		return nil, p.handleTokenError(err)
 	}
 
 	// 只有在 relay 模式下才清理数据（与 gemini provider 保持一致）

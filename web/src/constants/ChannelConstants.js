@@ -278,6 +278,13 @@ export const CHANNEL_OPTIONS = {
     color: 'orange',
     url: 'https://aistudio.google.com/'
   },
+  58: {
+    key: 58,
+    text: 'ClaudeCode',
+    value: 58,
+    color: 'info',
+    url: 'https://claude.ai/'
+  },
   8: {
     key: 8,
     text: '自定义渠道',

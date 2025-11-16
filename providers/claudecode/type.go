@@ -1,4 +1,4 @@
-package geminicli
+package claudecode
 
 import (
 	"context"
@@ -11,18 +11,16 @@ import (
 	"time"
 
 	"done-hub/common/logger"
-	"done-hub/providers/gemini"
 )
 
 // OAuth2Credentials OAuth2 用户凭证结构
 type OAuth2Credentials struct {
 	AccessToken  string    `json:"access_token"`
 	RefreshToken string    `json:"refresh_token"`
-	ClientID     string    `json:"client_id"`
-	ClientSecret string    `json:"client_secret"`
+	ClientID     string    `json:"client_id,omitempty"`
 	ExpiresAt    time.Time `json:"expires_at,omitempty"`
-	ProjectID    string    `json:"project_id"`
 	TokenType    string    `json:"token_type,omitempty"`
+	Scopes       []string  `json:"scopes,omitempty"`
 }
 
 // TokenRefreshResponse OAuth2 token 刷新响应
@@ -57,23 +55,17 @@ func (c *OAuth2Credentials) Refresh(ctx context.Context, proxyURL string, maxRet
 		return fmt.Errorf("refresh token is empty")
 	}
 
-	// 使用默认的 client_id 和 client_secret（如果未提供）
+	// 使用默认的 client_id（如果未提供）
 	clientID := c.ClientID
 	if clientID == "" {
 		clientID = DefaultClientID
 	}
 
-	clientSecret := c.ClientSecret
-	if clientSecret == "" {
-		clientSecret = DefaultClientSecret
-	}
-
 	// 准备请求数据
 	data := url.Values{}
-	data.Set("client_id", clientID)
-	data.Set("client_secret", clientSecret)
-	data.Set("refresh_token", c.RefreshToken)
 	data.Set("grant_type", "refresh_token")
+	data.Set("client_id", clientID)
+	data.Set("refresh_token", c.RefreshToken)
 
 	var lastErr error
 	for attempt := 0; attempt <= maxRetries; attempt++ {
@@ -84,9 +76,9 @@ func (c *OAuth2Credentials) Refresh(ctx context.Context, proxyURL string, maxRet
 				backoff = 30 * time.Second
 			}
 			if ctx != nil {
-				logger.LogError(ctx, fmt.Sprintf("[GeminiCli] Token refresh retry %d/%d after %v", attempt, maxRetries, backoff))
+				logger.LogError(ctx, fmt.Sprintf("[ClaudeCode] Token refresh retry %d/%d after %v", attempt, maxRetries, backoff))
 			} else {
-				logger.SysLog(fmt.Sprintf("[GeminiCli] Token refresh retry %d/%d after %v", attempt, maxRetries, backoff))
+				logger.SysLog(fmt.Sprintf("[ClaudeCode] Token refresh retry %d/%d after %v", attempt, maxRetries, backoff))
 			}
 			time.Sleep(backoff)
 		}
@@ -114,6 +106,8 @@ func (c *OAuth2Credentials) Refresh(ctx context.Context, proxyURL string, maxRet
 		}
 
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("User-Agent", "claude-cli/1.0.56 (external, cli)")
+		req.Header.Set("Accept", "application/json, text/plain, */*")
 
 		resp, err := client.Do(req)
 		if err != nil {
@@ -160,15 +154,20 @@ func (c *OAuth2Credentials) Refresh(ctx context.Context, proxyURL string, maxRet
 			c.TokenType = tokenResp.TokenType
 		}
 
+		// 解析 scopes
+		if tokenResp.Scope != "" {
+			c.Scopes = strings.Split(tokenResp.Scope, " ")
+		}
+
 		// 计算过期时间
 		if tokenResp.ExpiresIn > 0 {
 			c.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
 		}
 
 		if ctx != nil {
-			logger.LogInfo(ctx, fmt.Sprintf("[GeminiCli] Token refreshed successfully, expires at: %s", c.ExpiresAt.Format(time.RFC3339)))
+			logger.LogInfo(ctx, fmt.Sprintf("[ClaudeCode] Token refreshed successfully, expires at: %s", c.ExpiresAt.Format(time.RFC3339)))
 		} else {
-			logger.SysLog(fmt.Sprintf("[GeminiCli] Token refreshed successfully, expires at: %s", c.ExpiresAt.Format(time.RFC3339)))
+			logger.SysLog(fmt.Sprintf("[ClaudeCode] Token refreshed successfully, expires at: %s", c.ExpiresAt.Format(time.RFC3339)))
 		}
 		return nil
 	}
@@ -211,16 +210,4 @@ func FromJSON(jsonStr string) (*OAuth2Credentials, error) {
 		return nil, err
 	}
 	return &creds, nil
-}
-
-// GeminiCliRequest 内部API请求格式
-type GeminiCliRequest struct {
-	Model   string                    `json:"model"`
-	Project string                    `json:"project"`
-	Request *gemini.GeminiChatRequest `json:"request"`
-}
-
-// GeminiCliResponse 内部API响应格式（包装了实际的响应）
-type GeminiCliResponse struct {
-	Response *gemini.GeminiChatResponse `json:"response"`
 }

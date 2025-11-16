@@ -25,7 +25,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var AllowChannelType = []int{config.ChannelTypeAnthropic, config.ChannelTypeVertexAI, config.ChannelTypeBedrock, config.ChannelTypeCustom, config.ChannelTypeGemini, config.ChannelTypeGeminiCli}
+var AllowChannelType = []int{config.ChannelTypeAnthropic, config.ChannelTypeVertexAI, config.ChannelTypeBedrock, config.ChannelTypeCustom, config.ChannelTypeGemini, config.ChannelTypeGeminiCli, config.ChannelTypeClaudeCode}
 
 type relayClaudeOnly struct {
 	relayBase

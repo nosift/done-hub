@@ -166,6 +166,12 @@ func Relay(c *gin.Context) {
 		finalAttempt, actualRetryTimes, retryTimes, utils.TruncateBase64InMessage(apiErr.OpenAIError.Message), apiErr.StatusCode))
 
 	if apiErr != nil {
+		// 确保 channel_type 存在，用于 FilterOpenAIErr 正确过滤错误
+		// 如果 channel_type 为 0（可能在重试失败后被清空），使用最后一个渠道的类型
+		if c.GetInt("channel_type") == 0 && channel != nil {
+			c.Set("channel_type", channel.Type)
+		}
+
 		if heartbeat != nil && heartbeat.IsSafeWriteStream() {
 			relay.HandleStreamError(apiErr)
 			return
@@ -220,10 +226,30 @@ func shouldCooldowns(c *gin.Context, channel *model.Channel, apiErr *types.OpenA
 
 	// 如果是频率限制，冻结通道
 	if apiErr.StatusCode == http.StatusTooManyRequests {
-		model.ChannelGroup.SetCooldowns(channelId, modelName)
-		cooldownApplied = true
-		logger.LogWarn(c.Request.Context(), fmt.Sprintf("channel_cooldown channel_id=%d model=\"%s\" duration=%ds reason=\"rate_limit\"",
-			channelId, modelName, config.RetryCooldownSeconds))
+		// 检查是否有响应头中的冻结时间（如 ClaudeCode 的 anthropic-ratelimit-unified-reset）
+		if apiErr.RateLimitResetAt > 0 {
+			// 使用响应头中的冻结时间
+			nowTime := time.Now().Unix()
+			durationSeconds := apiErr.RateLimitResetAt - nowTime
+			if durationSeconds > 0 {
+				model.ChannelGroup.SetCooldownsWithDuration(channelId, modelName, durationSeconds)
+				cooldownApplied = true
+				logger.LogWarn(c.Request.Context(), fmt.Sprintf("channel_cooldown channel_id=%d model=\"%s\" duration=%ds reason=\"rate_limit\" reset_at=%s",
+					channelId, modelName, durationSeconds, time.Unix(apiErr.RateLimitResetAt, 0).Format(time.RFC3339)))
+			} else {
+				// 冻结时间已过，使用默认冻结时间
+				model.ChannelGroup.SetCooldowns(channelId, modelName)
+				cooldownApplied = true
+				logger.LogWarn(c.Request.Context(), fmt.Sprintf("channel_cooldown channel_id=%d model=\"%s\" duration=%ds reason=\"rate_limit\"",
+					channelId, modelName, config.RetryCooldownSeconds))
+			}
+		} else {
+			// 没有响应头中的冻结时间，使用配置中的默认冻结时间
+			model.ChannelGroup.SetCooldowns(channelId, modelName)
+			cooldownApplied = true
+			logger.LogWarn(c.Request.Context(), fmt.Sprintf("channel_cooldown channel_id=%d model=\"%s\" duration=%ds reason=\"rate_limit\"",
+				channelId, modelName, config.RetryCooldownSeconds))
+		}
 	}
 
 	skipChannelIds, ok := utils.GetGinValue[[]int](c, "skip_channel_ids")

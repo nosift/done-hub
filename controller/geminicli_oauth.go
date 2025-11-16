@@ -33,6 +33,7 @@ const (
 type OAuthStateData struct {
 	ChannelID int    `json:"channel_id"`
 	ProjectID string `json:"project_id"`
+	Proxy     string `json:"proxy"` // 代理配置（JSON 字符串）
 	CreatedAt int64  `json:"created_at"`
 }
 
@@ -49,6 +50,7 @@ type OAuthResultData struct {
 type StartGeminiCliOAuthRequest struct {
 	ChannelID int    `json:"channel_id"` // 可选，新建时为 0
 	ProjectID string `json:"project_id"` // 可选，为空时自动检测
+	Proxy     string `json:"proxy"`      // 可选，代理配置（JSON 字符串）
 }
 
 // StartGeminiCliOAuth 开始 GeminiCli OAuth 认证流程
@@ -68,10 +70,11 @@ func StartGeminiCliOAuth(c *gin.Context) {
 	}
 	state := base64.URLEncoding.EncodeToString(stateBytes)
 
-	// 保存 state 到缓存
+	// 保存 state 到缓存（包含代理配置）
 	stateData := OAuthStateData{
 		ChannelID: req.ChannelID,
 		ProjectID: req.ProjectID,
+		Proxy:     req.Proxy, // 保存代理配置，用于后续 token 交换
 		CreatedAt: time.Now().Unix(),
 	}
 	cacheKey := OAuthStateCachePrefix + state
@@ -206,10 +209,10 @@ func GeminiCliOAuthCallback(c *gin.Context) {
 	// 删除已使用的 state
 	cache.DeleteCache(cacheKey)
 
-	// 使用 code 交换 token
+	// 使用 code 交换 token（使用会话中保存的代理配置）
 	redirectURI := "http://localhost:8080/api/geminicli/oauth/callback"
 
-	tokenResp, err := exchangeCodeForToken(code, redirectURI)
+	tokenResp, err := exchangeCodeForToken(code, redirectURI, stateData.Proxy)
 	if err != nil {
 		logger.SysError(fmt.Sprintf("Failed to exchange code for token: %s", err.Error()))
 
@@ -230,10 +233,10 @@ func GeminiCliOAuthCallback(c *gin.Context) {
 	projectID := stateData.ProjectID
 	autoDetected := false
 
-	// 如果没有提供项目 ID，尝试自动检测
+	// 如果没有提供项目 ID，尝试自动检测（使用会话中保存的代理配置）
 	if projectID == "" {
 		logger.SysLog("Project ID 未提供，尝试自动检测...")
-		projects, err := getUserProjects(tokenResp.AccessToken)
+		projects, err := getUserProjects(tokenResp.AccessToken, stateData.Proxy)
 		if err != nil {
 			logger.SysError(fmt.Sprintf("Failed to get user projects: %s", err.Error()))
 
@@ -613,8 +616,8 @@ func enableRequiredAPIs(accessToken, projectID string) error {
 	return nil
 }
 
-// exchangeCodeForToken 使用授权码交换 token
-func exchangeCodeForToken(code, redirectURI string) (*geminicli.TokenRefreshResponse, error) {
+// exchangeCodeForToken 使用授权码交换 token（支持代理）
+func exchangeCodeForToken(code, redirectURI, proxyURL string) (*geminicli.TokenRefreshResponse, error) {
 	data := url.Values{}
 	data.Set("client_id", geminicli.DefaultClientID)
 	data.Set("client_secret", geminicli.DefaultClientSecret)
@@ -629,7 +632,22 @@ func exchangeCodeForToken(code, redirectURI string) (*geminicli.TokenRefreshResp
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
+	// 创建 HTTP 客户端
 	client := &http.Client{Timeout: 30 * time.Second}
+
+	// 如果有代理配置，设置代理
+	if proxyURL != "" {
+		proxyURLParsed, err := url.Parse(proxyURL)
+		if err == nil {
+			client.Transport = &http.Transport{
+				Proxy: http.ProxyURL(proxyURLParsed),
+			}
+			logger.SysLog(fmt.Sprintf("Using proxy for token exchange: %s", proxyURL))
+		} else {
+			logger.SysError(fmt.Sprintf("Failed to parse proxy URL: %s", err.Error()))
+		}
+	}
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
@@ -670,8 +688,8 @@ type GoogleCloudProjectsResponse struct {
 	Projects []GoogleCloudProject `json:"projects"`
 }
 
-// getUserProjects 获取用户可访问的 Google Cloud 项目列表
-func getUserProjects(accessToken string) ([]GoogleCloudProject, error) {
+// getUserProjects 获取用户可访问的 Google Cloud 项目列表（支持代理）
+func getUserProjects(accessToken, proxyURL string) ([]GoogleCloudProject, error) {
 	req, err := http.NewRequest("GET", "https://cloudresourcemanager.googleapis.com/v1/projects", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -680,7 +698,22 @@ func getUserProjects(accessToken string) ([]GoogleCloudProject, error) {
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("User-Agent", "geminicli-oauth/1.0")
 
+	// 创建 HTTP 客户端
 	client := &http.Client{Timeout: 30 * time.Second}
+
+	// 如果有代理配置，设置代理
+	if proxyURL != "" {
+		proxyURLParsed, err := url.Parse(proxyURL)
+		if err == nil {
+			client.Transport = &http.Transport{
+				Proxy: http.ProxyURL(proxyURLParsed),
+			}
+			logger.SysLog(fmt.Sprintf("Using proxy for project detection: %s", proxyURL))
+		} else {
+			logger.SysError(fmt.Sprintf("Failed to parse proxy URL: %s", err.Error()))
+		}
+	}
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)

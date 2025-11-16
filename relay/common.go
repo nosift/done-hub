@@ -607,15 +607,9 @@ func FilterOpenAIErr(c *gin.Context, err *types.OpenAIErrorWithStatusCode) (errW
 	requestId := c.GetString(logger.RequestIdKey)
 	newErr.OpenAIError.Message = utils.MessageWithRequestId(newErr.OpenAIError.Message, requestId)
 
-	if !newErr.LocalError && newErr.OpenAIError.Type == "one_hub_error" || strings.HasSuffix(newErr.OpenAIError.Type, "_api_error") {
-		newErr.OpenAIError.Type = "system_error"
-		if utils.ContainsString(newErr.Message, quotaKeywords) {
-			newErr.Message = "上游负载已饱和，请稍后再试"
-			newErr.StatusCode = http.StatusTooManyRequests
-		}
-	}
-
 	channelType := c.GetInt("channel_type")
+
+	// GeminiCli 错误处理（优先处理，避免被通用逻辑覆盖）
 	if channelType == config.ChannelTypeGeminiCli && !newErr.LocalError {
 		if newErr.OpenAIError.Type == "geminicli_error" || newErr.OpenAIError.Type == "geminicli_token_error" {
 			if newErr.StatusCode == http.StatusUnauthorized || newErr.StatusCode == http.StatusForbidden {
@@ -636,9 +630,47 @@ func FilterOpenAIErr(c *gin.Context, err *types.OpenAIErrorWithStatusCode) (errW
 				}
 				newErr.OpenAIError.Message = utils.MessageWithRequestId("上游负载已饱和，请稍后再试", requestId)
 				newErr.StatusCode = http.StatusTooManyRequests
+				return newErr
 			} else {
 				newErr.OpenAIError.Type = "system_error"
 			}
+		}
+	}
+
+	// ClaudeCode 错误处理（优先处理，避免被通用逻辑覆盖）
+	if channelType == config.ChannelTypeClaudeCode && !newErr.LocalError {
+		if newErr.OpenAIError.Type == "claudecode_error" || newErr.OpenAIError.Type == "claudecode_token_error" {
+			if newErr.StatusCode == http.StatusUnauthorized || newErr.StatusCode == http.StatusForbidden {
+				if cachedErr, exists := c.Get("first_non_auth_error"); exists {
+					if firstErr, ok := cachedErr.(*types.OpenAIErrorWithStatusCode); ok {
+						newErr = *firstErr
+						if newErr.OpenAIError.Type == "claudecode_error" {
+							newErr.OpenAIError.Type = "system_error"
+						}
+						newErr.OpenAIError.Message = utils.MessageWithRequestId(newErr.OpenAIError.Message, requestId)
+						return newErr
+					}
+				}
+				if newErr.StatusCode == http.StatusUnauthorized {
+					newErr.OpenAIError.Type = "authentication_error"
+				} else {
+					newErr.OpenAIError.Type = "access_denied"
+				}
+				newErr.OpenAIError.Message = utils.MessageWithRequestId("上游负载已饱和，请稍后再试", requestId)
+				newErr.StatusCode = http.StatusTooManyRequests
+				return newErr
+			} else {
+				newErr.OpenAIError.Type = "system_error"
+			}
+		}
+	}
+
+	// 通用错误处理
+	if !newErr.LocalError && (newErr.OpenAIError.Type == "one_hub_error" || strings.HasSuffix(newErr.OpenAIError.Type, "_api_error")) {
+		newErr.OpenAIError.Type = "system_error"
+		if utils.ContainsString(newErr.Message, quotaKeywords) {
+			newErr.Message = "上游负载已饱和，请稍后再试"
+			newErr.StatusCode = http.StatusTooManyRequests
 		}
 	}
 

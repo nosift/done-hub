@@ -85,13 +85,18 @@ func init() {
 }
 
 func (cc *ChannelsChooser) SetCooldowns(channelId int, modelName string) bool {
-	if channelId == 0 || modelName == "" || config.RetryCooldownSeconds == 0 {
+	return cc.SetCooldownsWithDuration(channelId, modelName, int64(config.RetryCooldownSeconds))
+}
+
+// SetCooldownsWithDuration 设置指定渠道和模型的冷却时间（支持自定义冻结时长）
+func (cc *ChannelsChooser) SetCooldownsWithDuration(channelId int, modelName string, durationSeconds int64) bool {
+	if channelId == 0 || modelName == "" || durationSeconds == 0 {
 		return false
 	}
 
 	key := fmt.Sprintf("%d:%s", channelId, modelName)
 	nowTime := time.Now().Unix()
-	newCooldownTime := nowTime + int64(config.RetryCooldownSeconds)
+	newCooldownTime := nowTime + durationSeconds
 
 	// 使用LoadOrStore的原子性，避免竞态条件
 	actualValue, loaded := cc.Cooldowns.LoadOrStore(key, newCooldownTime)
