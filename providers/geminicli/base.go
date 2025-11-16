@@ -251,69 +251,50 @@ func (p *GeminiCliProvider) GetFullRequestURL(requestURL string, modelName strin
 	return fmt.Sprintf("%s/v1internal:%s", baseURL, requestURL)
 }
 
-// GetToken 获取访问令牌，支持自动刷新
-// 使用 Redis 缓存，token 刷新后保存到数据库
 func (p *GeminiCliProvider) GetToken() (string, error) {
 	if p.Credentials == nil {
 		return "", fmt.Errorf("credentials not configured")
 	}
 
-	// 使用 project ID 作为缓存 key（与 VertexAI 保持一致）
+	var ctx context.Context
+	if p.Context != nil {
+		ctx = p.Context.Request.Context()
+	} else {
+		ctx = context.Background()
+	}
+
 	cacheKey := fmt.Sprintf("%s:%s", TokenCacheKey, p.ProjectID)
 
-	// 1. 尝试从 Redis 缓存获取
 	cachedToken, _ := cache.GetCache[string](cacheKey)
 	if cachedToken != "" {
-		// 缓存命中，直接返回
 		return cachedToken, nil
 	}
 
-	// 2. 缓存未命中，检查凭证是否过期
 	needsUpdate := false
 	if p.Credentials.IsExpired() && p.Credentials.RefreshToken != "" {
-		// Token 过期且有 refresh_token，尝试刷新
 		proxyURL := ""
 		if p.Channel.Proxy != nil && *p.Channel.Proxy != "" {
 			proxyURL = *p.Channel.Proxy
 		}
 
-		// 获取 context
-		var ctx context.Context
-		if p.Context != nil {
-			ctx = p.Context.Request.Context()
-		}
-
-		// 刷新 token（最多重试 3 次）
 		if err := p.Credentials.Refresh(ctx, proxyURL, 3); err != nil {
 			logger.LogError(ctx, fmt.Sprintf("Failed to refresh geminicli token: %s", err.Error()))
 			return "", fmt.Errorf("failed to refresh token: %w", err)
 		}
 
-		// 标记需要更新数据库
 		needsUpdate = true
 	}
 
-	// 3. 使用当前的 access_token
 	if p.Credentials.AccessToken == "" {
 		return "", fmt.Errorf("access token is empty")
 	}
 
-	// 4. 如果 token 被刷新，保存新凭证到数据库
 	if needsUpdate {
-		if err := p.saveCredentialsToDatabase(); err != nil {
-			// 获取 context（如果有）
-			var ctx context.Context
-			if p.Context != nil {
-				ctx = p.Context.Request.Context()
-			}
+		if err := p.saveCredentialsToDatabase(ctx); err != nil {
 			logger.LogError(ctx, fmt.Sprintf("Failed to save refreshed credentials to database: %s", err.Error()))
-			// 不返回错误，因为 token 刷新成功了，只是保存失败
 		}
 	}
 
-	// 5. 计算缓存时长（与 VertexAI 保持一致）
-	// 如果有过期时间，缓存到过期前 5 分钟
-	// 否则默认缓存 30 分钟
 	duration := 30 * time.Minute
 	if !p.Credentials.ExpiresAt.IsZero() {
 		timeUntilExpiry := time.Until(p.Credentials.ExpiresAt)
@@ -324,42 +305,28 @@ func (p *GeminiCliProvider) GetToken() (string, error) {
 		}
 	}
 
-	// 6. 缓存 token 到 Redis
 	cache.SetCache(cacheKey, p.Credentials.AccessToken, duration)
 
 	return p.Credentials.AccessToken, nil
 }
 
-// saveCredentialsToDatabase 保存凭证到数据库
-func (p *GeminiCliProvider) saveCredentialsToDatabase() error {
-	// 序列化凭证为 JSON
+func (p *GeminiCliProvider) saveCredentialsToDatabase(ctx context.Context) error {
 	credentialsJSON, err := p.Credentials.ToJSON()
 	if err != nil {
 		return fmt.Errorf("failed to serialize credentials: %w", err)
 	}
 
-	// 更新数据库中的 Key 字段
 	if err := model.UpdateChannelKey(p.Channel.Id, credentialsJSON); err != nil {
 		return fmt.Errorf("failed to update channel key: %w", err)
 	}
 
-	logger.SysLog(fmt.Sprintf("[GeminiCli] Credentials saved to database for channel %d", p.Channel.Id))
+	logger.LogInfo(ctx, fmt.Sprintf("[GeminiCli] Credentials saved to database for channel %d", p.Channel.Id))
 	return nil
 }
 
-// handleTokenError 处理token获取失败的错误
-// Token 刷新失败应该返回 401，触发重试和禁用渠道逻辑
 func (p *GeminiCliProvider) handleTokenError(err error) *types.OpenAIErrorWithStatusCode {
 	errMsg := err.Error()
 
-	// Token 错误统一返回 401 Unauthorized，不设置 LocalError
-	// 这样会触发：
-	// 1. 重试其他渠道
-	// 2. 禁用当前渠道（如果符合禁用条件）
-	// 3. 如果所有渠道都失败，返回"上游负载已饱和"
-	//
-	// 注意：不能使用 StringErrorWrapper，因为它会将 Type 设置为 "one_hub_error"
-	// 我们需要 Type 为 "geminicli_token_error" 以便在 FilterOpenAIErr 中正确过滤
 	return &types.OpenAIErrorWithStatusCode{
 		OpenAIError: types.OpenAIError{
 			Message: errMsg,
@@ -371,13 +338,10 @@ func (p *GeminiCliProvider) handleTokenError(err error) *types.OpenAIErrorWithSt
 	}
 }
 
-// getRequestHeadersInternal 内部方法，返回请求头和错误信息
-// 参考 VertexAI 的实现
 func (p *GeminiCliProvider) getRequestHeadersInternal() (headers map[string]string, err error) {
 	headers = make(map[string]string)
 	p.CommonRequestHeaders(headers)
 
-	// 获取 token（会自动刷新如果过期）
 	token, err := p.GetToken()
 	if err != nil {
 		if p.Context != nil {
