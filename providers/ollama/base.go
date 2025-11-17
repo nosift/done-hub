@@ -3,11 +3,11 @@ package ollama
 import (
 	"done-hub/common/requester"
 	"done-hub/model"
+	"done-hub/providers/base"
 	"done-hub/types"
 	"encoding/json"
+	"fmt"
 	"net/http"
-
-	"done-hub/providers/base"
 )
 
 type OllamaProviderFactory struct{}
@@ -31,9 +31,10 @@ func (f OllamaProviderFactory) Create(channel *model.Channel) base.ProviderInter
 
 func getOllamaConfig() base.ProviderConfig {
 	return base.ProviderConfig{
-		BaseURL:         "",
+		BaseURL:         "https://ollama.com",
 		ChatCompletions: "/api/chat",
-		Embeddings:      "/api/embeddings",
+		Embeddings:      "/api/embed",
+		ModelList:       "/api/tags",
 	}
 }
 
@@ -63,6 +64,7 @@ func errorHandle(OllamaError *OllamaError) *types.OpenAIError {
 func (p *OllamaProvider) GetRequestHeaders() (headers map[string]string) {
 	headers = make(map[string]string)
 	p.CommonRequestHeaders(headers)
+	headers["Authorization"] = fmt.Sprintf("Bearer %s", p.Channel.Key)
 
 	otherHeaders := p.Channel.Plugin.Data()["headers"]
 
