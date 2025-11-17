@@ -315,8 +315,11 @@
   "token_index": {
     "token": "令牌",
     "createToken": "新建令牌",
-    "replaceApiAddress1": "将OpenAI API基础地址https://api.openai.com替换为",
-    "replaceApiAddress2": "，复制下面的密钥即可使用。",
+    "apiUsageTip": "API 使用说明：复制下面的密钥，并将对应的 API 基础地址替换为以下地址",
+    "openaiApi": "OpenAI",
+    "geminiApi": "Gemini",
+    "claudeApi": "Claude",
+    "apiAddress": "API 地址",
     "searchTokenName": "搜索令牌的名称...",
     "refresh": "刷新",
     "name": "名称",

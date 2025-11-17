@@ -61,6 +61,8 @@ func GetStatus(c *gin.Context) {
 			"UptimeDomain":         config.UPTIMEKUMA_DOMAIN,
 			"UptimePageName":       config.UPTIMEKUMA_STATUS_PAGE_NAME,
 			"UptimeEnabled":        config.UPTIMEKUMA_ENABLE,
+			"GeminiAPIEnabled":     config.GeminiAPIEnabled,
+			"ClaudeAPIEnabled":     config.ClaudeAPIEnabled,
 		},
 	})
 }
