@@ -113,6 +113,13 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
   const [claudeCodeAuthCode, setClaudeCodeAuthCode] = useState('')
   const [claudeCodeSubmitting, setClaudeCodeSubmitting] = useState(false)
 
+  // Codex OAuth 相关状态
+  const [codexOAuthVisible, setCodexOAuthVisible] = useState(false)
+  const [codexAuthURL, setCodexAuthURL] = useState('')
+  const [codexSessionId, setCodexSessionId] = useState('')
+  const [codexAuthCode, setCodexAuthCode] = useState('')
+  const [codexSubmitting, setCodexSubmitting] = useState(false)
+
   // 清理 OAuth 相关资源
   const cleanupOAuth = () => {
     if (pollingIntervalRef.current) {
@@ -581,6 +588,91 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
     setClaudeCodeSessionId('')
     setClaudeCodeAuthCode('')
     setClaudeCodeSubmitting(false)
+  }
+
+  // Codex OAuth 授权处理 - 步骤1: 获取授权链接
+  const handleCodexOAuth = async(proxy) => {
+    const trimmedProxy = proxy ? proxy.trim() : ''
+
+    try {
+      setCodexSubmitting(true)
+
+      // 调用后端 API 生成授权 URL（传递代理配置）
+      const res = await API.post('/api/codex/oauth/start', {
+        channel_id: channelId || 0,
+        proxy: trimmedProxy
+      })
+
+      if (!res.data.success) {
+        showError(res.data.message || '获取授权链接失败')
+        setCodexSubmitting(false)
+        return
+      }
+
+      const authURL = res.data.data.auth_url
+      const sessionId = res.data.data.session_id
+
+      setCodexAuthURL(authURL)
+      setCodexSessionId(sessionId)
+      setCodexOAuthVisible(true)
+      setCodexSubmitting(false)
+
+      // 自动打开授权页面
+      window.open(authURL, '_blank')
+
+    } catch (error) {
+      showError('获取授权链接失败: ' + (error.message || error))
+      setCodexSubmitting(false)
+    }
+  }
+
+  // Codex OAuth 授权处理 - 步骤2: 提交授权码
+  const handleCodexSubmitCode = async(setFieldValue) => {
+    if (!codexAuthCode || codexAuthCode.trim() === '') {
+      showError('请输入授权码或回调 URL')
+      return
+    }
+
+    try {
+      setCodexSubmitting(true)
+
+      // 提交授权码到后端
+      const res = await API.post('/api/codex/oauth/exchange-code', {
+        session_id: codexSessionId,
+        callback_url: codexAuthCode.trim()
+      })
+
+      if (!res.data.success) {
+        showError(res.data.message || '授权码交换失败')
+        setCodexSubmitting(false)
+        return
+      }
+
+      // 获取凭证并填充
+      const credentials = res.data.data.credentials
+      setFieldValue('key', credentials)
+      showSuccess('OAuth 授权成功！凭证已自动填充')
+
+      // 关闭对话框并重置状态
+      setCodexOAuthVisible(false)
+      setCodexAuthURL('')
+      setCodexSessionId('')
+      setCodexAuthCode('')
+      setCodexSubmitting(false)
+
+    } catch (error) {
+      showError('授权码交换失败: ' + (error.message || error))
+      setCodexSubmitting(false)
+    }
+  }
+
+  // 取消 Codex OAuth
+  const handleCodexCancelOAuth = () => {
+    setCodexOAuthVisible(false)
+    setCodexAuthURL('')
+    setCodexSessionId('')
+    setCodexAuthCode('')
+    setCodexSubmitting(false)
   }
 
   const handleTypeChange = (setFieldValue, typeValue, values) => {
@@ -1500,6 +1592,101 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
                           disabled={claudeCodeSubmitting || !claudeCodeAuthCode}
                         >
                           {claudeCodeSubmitting ? '提交中...' : '提交授权码'}
+                        </Button>
+                      </DialogActions>
+                    </Dialog>
+                  </Box>
+                )}
+
+                {/* Codex OAuth 授权按钮 */}
+                {values.type === 59 && !batchAdd && (
+                  <Box sx={{ mt: 2, mb: 2 }}>
+                    <Button
+                      variant="outlined"
+                      color="primary"
+                      fullWidth
+                      disabled={codexSubmitting}
+                      onClick={() => handleCodexOAuth(values.proxy)}
+                      startIcon={codexSubmitting ? null : <Icon icon="simple-icons:openai"/>}
+                    >
+                      {codexSubmitting ? '获取授权链接中...' : 'OAuth 授权'}
+                    </Button>
+                    <Alert severity="info" sx={{ mt: 1 }}>
+                      点击按钮后，将打开 OpenAI 授权页面。授权成功后，请复制浏览器地址栏中的完整 URL 并粘贴到弹出的输入框中。
+                    </Alert>
+
+                    {/* Codex OAuth 对话框 */}
+                    <Dialog
+                      open={codexOAuthVisible}
+                      onClose={handleCodexCancelOAuth}
+                      maxWidth="md"
+                      fullWidth
+                    >
+                      <DialogTitle>Codex OAuth 授权</DialogTitle>
+                      <DialogContent>
+                        <Box sx={{ mb: 2 }}>
+                          <Alert severity="info" sx={{ mb: 2 }}>
+                            <Typography variant="body2" component="div">
+                              <strong>授权步骤：</strong>
+                              <ol style={{ margin: '8px 0', paddingLeft: '20px' }}>
+                                <li>点击下方"打开授权页面"按钮（或手动复制链接到浏览器）</li>
+                                <li>在新打开的页面中登录 OpenAI 账户并同意授权</li>
+                                <li>授权成功后，复制浏览器地址栏中的<strong>完整 URL</strong></li>
+                                <li>将完整 URL 粘贴到下方输入框中，点击"提交授权码"</li>
+                              </ol>
+                            </Typography>
+                          </Alert>
+
+                          <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+                            <Button
+                              variant="contained"
+                              color="primary"
+                              fullWidth
+                              onClick={() => window.open(codexAuthURL, '_blank')}
+                              startIcon={<Icon icon="mdi:open-in-new"/>}
+                            >
+                              打开授权页面
+                            </Button>
+                            <Button
+                              variant="outlined"
+                              color="secondary"
+                              onClick={() => {
+                                copy(codexAuthURL).then(() => {
+                                  showSuccess('授权链接已复制到剪贴板')
+                                }).catch(() => {
+                                  showError('复制失败，请手动复制')
+                                })
+                              }}
+                              startIcon={<Icon icon="mdi:content-copy"/>}
+                              sx={{ minWidth: '120px' }}
+                            >
+                              复制链接
+                            </Button>
+                          </Box>
+
+                          <TextField
+                            fullWidth
+                            label="授权回调 URL 或授权码"
+                            placeholder="粘贴完整的回调 URL，例如：http://localhost:1455/auth/callback?code=xxx&state=xxx"
+                            value={codexAuthCode}
+                            onChange={(e) => setCodexAuthCode(e.target.value)}
+                            multiline
+                            rows={3}
+                            variant="outlined"
+                          />
+                        </Box>
+                      </DialogContent>
+                      <DialogActions>
+                        <Button onClick={handleCodexCancelOAuth} disabled={codexSubmitting}>
+                          取消
+                        </Button>
+                        <Button
+                          onClick={() => handleCodexSubmitCode(setFieldValue)}
+                          variant="contained"
+                          color="primary"
+                          disabled={codexSubmitting || !codexAuthCode}
+                        >
+                          {codexSubmitting ? '提交中...' : '提交授权码'}
                         </Button>
                       </DialogActions>
                     </Dialog>

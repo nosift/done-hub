@@ -285,6 +285,13 @@ export const CHANNEL_OPTIONS = {
     color: 'info',
     url: 'https://claude.ai/'
   },
+  59: {
+    key: 59,
+    text: 'Codex',
+    value: 59,
+    color: 'primary',
+    url: 'https://chatgpt.com/'
+  },
   8: {
     key: 8,
     text: '自定义渠道',

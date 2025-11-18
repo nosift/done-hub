@@ -200,6 +200,15 @@ func SetApiRouter(router *gin.Engine) {
 			claudeCodeRoute.POST("/oauth/start", controller.StartClaudeCodeOAuth)
 			claudeCodeRoute.POST("/oauth/exchange-code", controller.ClaudeCodeOAuthCallback)
 		}
+
+		// Codex OAuth routes
+		codexRoute := apiRouter.Group("/codex")
+		codexRoute.Use(middleware.AdminAuth())
+		{
+			codexRoute.POST("/oauth/start", controller.StartCodexOAuth)
+			codexRoute.POST("/oauth/exchange-code", controller.CodexOAuthCallback)
+		}
+
 		channelTagRoute := apiRouter.Group("/channel_tag")
 		channelTagRoute.Use(middleware.AdminAuth())
 		{

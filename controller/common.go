@@ -49,8 +49,12 @@ func ShouldDisableChannel(channelType int, err *types.OpenAIErrorWithStatusCode)
 	if err.StatusCode == http.StatusUnauthorized {
 		return true
 	}
-	if err.StatusCode == http.StatusForbidden && channelType == config.ChannelTypeGemini {
-		return true
+	// 403 Forbidden 自动禁用（Gemini, Codex, GeminiCli, ClaudeCode）
+	if err.StatusCode == http.StatusForbidden {
+		switch channelType {
+		case config.ChannelTypeGemini, config.ChannelTypeCodex, config.ChannelTypeGeminiCli, config.ChannelTypeClaudeCode:
+			return true
+		}
 	}
 
 	// 禁用关键词检查

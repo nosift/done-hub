@@ -1,7 +1,7 @@
 module done-hub
 
 // +heroku goVersion go1.18
-go 1.25
+go 1.24
 
 require (
 	cloud.google.com/go/iam v1.5.2

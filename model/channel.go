@@ -2,10 +2,12 @@ package model
 
 import (
 	"crypto/md5"
+	"done-hub/common/cache"
 	"done-hub/common/config"
 	"done-hub/common/logger"
 	"done-hub/common/utils"
 	"encoding/hex"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -510,12 +512,30 @@ func updateChannelUsedQuota(id int, quota int) {
 	}
 }
 
+func ClearChannelTokenCache(channelId int) {
+	cacheKeys := []string{
+		fmt.Sprintf("api_token:codex:%d", channelId),
+		fmt.Sprintf("api_token:geminicli:%d", channelId),
+		fmt.Sprintf("api_token:claudecode:%d", channelId),
+	}
+
+	for _, key := range cacheKeys {
+		if err := cache.DeleteCache(key); err != nil {
+			logger.SysError(fmt.Sprintf("failed to clear token cache %s: %v", key, err))
+		}
+	}
+}
+
 func UpdateChannelKey(id int, key string) error {
 	err := DB.Model(&Channel{}).Where("id = ?", id).Update("key", key).Error
 	if err != nil {
 		logger.SysError("failed to update channel key: " + err.Error())
 		return err
 	}
+
+	ClearChannelTokenCache(id)
+	ChannelGroup.Load()
+
 	return nil
 }
 
