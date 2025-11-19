@@ -474,9 +474,17 @@ type ThinkingConfig struct {
 }
 
 type GeminiError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-	Status  string `json:"status"`
+	Code    int                  `json:"code"`
+	Message string               `json:"message"`
+	Status  string               `json:"status"`
+	Details []GeminiErrorDetails `json:"details,omitempty"`
+}
+
+type GeminiErrorDetails struct {
+	Type     string                 `json:"@type,omitempty"`
+	Reason   string                 `json:"reason,omitempty"`
+	Domain   string                 `json:"domain,omitempty"`
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
 }
 
 func (e *GeminiError) Error() string {

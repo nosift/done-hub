@@ -159,12 +159,52 @@ func RequestErrorHandle(token string) requester.HttpErrorHandler {
 		geminiError := &gemini.GeminiErrorResponse{}
 		resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 		if err := json.NewDecoder(resp.Body).Decode(geminiError); err == nil {
-			return errorHandle(geminiError, token)
+			openAIError := errorHandle(geminiError, token)
+
+			// 解析 429 错误的响应体中的冻结时间
+			if openAIError != nil && geminiError.ErrorInfo != nil && geminiError.ErrorInfo.Code == http.StatusTooManyRequests {
+				// 解析 error.details[].metadata.quotaResetDelay
+				for _, detail := range geminiError.ErrorInfo.Details {
+					if detail.Metadata != nil {
+						if quotaResetDelay, ok := detail.Metadata["quotaResetDelay"].(string); ok && quotaResetDelay != "" {
+							if duration, parseErr := time.ParseDuration(quotaResetDelay); parseErr == nil {
+								resetTimestamp := time.Now().Unix() + int64(duration.Seconds())
+								openAIError.RateLimitResetAt = resetTimestamp
+								logger.LogInfo(nil, fmt.Sprintf("[GeminiCli] Rate limit detected, quota reset delay: %s, reset at: %s",
+									quotaResetDelay, time.Unix(resetTimestamp, 0).Format(time.RFC3339)))
+								break
+							}
+						}
+					}
+				}
+			}
+
+			return openAIError
 		}
 
 		geminiErrors := &gemini.GeminiErrors{}
 		if err := json.Unmarshal(bodyBytes, geminiErrors); err == nil {
-			return errorHandle(geminiErrors.Error(), token)
+			openAIError := errorHandle(geminiErrors.Error(), token)
+
+			// 解析 429 错误的响应体中的冻结时间
+			if openAIError != nil && geminiErrors.Error() != nil && geminiErrors.Error().ErrorInfo != nil && geminiErrors.Error().ErrorInfo.Code == http.StatusTooManyRequests {
+				// 解析 error.details[].metadata.quotaResetDelay
+				for _, detail := range geminiErrors.Error().ErrorInfo.Details {
+					if detail.Metadata != nil {
+						if quotaResetDelay, ok := detail.Metadata["quotaResetDelay"].(string); ok && quotaResetDelay != "" {
+							if duration, parseErr := time.ParseDuration(quotaResetDelay); parseErr == nil {
+								resetTimestamp := time.Now().Unix() + int64(duration.Seconds())
+								openAIError.RateLimitResetAt = resetTimestamp
+								logger.LogInfo(nil, fmt.Sprintf("[GeminiCli] Rate limit detected, quota reset delay: %s, reset at: %s",
+									quotaResetDelay, time.Unix(resetTimestamp, 0).Format(time.RFC3339)))
+								break
+							}
+						}
+					}
+				}
+			}
+
+			return openAIError
 		}
 
 		return nil
