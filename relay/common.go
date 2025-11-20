@@ -285,7 +285,8 @@ func fetchChannelByModel(c *gin.Context, modelName string) (*model.Channel, erro
 	group := c.GetString("token_group")
 	filters := buildChannelFilters(c, modelName)
 
-	channel, err := model.ChannelGroup.NextByValidatedModel(group, modelName, filters...)
+	// 传递 gin.Context 给 balancer，用于生成 session hash
+	channel, err := model.ChannelGroup.NextByValidatedModel(group, modelName, c, filters...)
 	if err != nil {
 		// 这里只处理渠道相关的错误，模型匹配错误已在上层处理
 		message := fmt.Sprintf(model.ErrNoAvailableChannelForModel, group, modelName)

@@ -8,6 +8,7 @@ import (
 	"done-hub/providers/claude"
 	"done-hub/types"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -185,10 +186,49 @@ func generateClaudeCodeUserId() string {
 	return fmt.Sprintf("user_%s_account__session_%s", userHash, sessionID)
 }
 
+// extractMetadataFromOriginalRequest 从原始请求体中提取 metadata 字段
+func (p *ClaudeCodeProvider) extractMetadataFromOriginalRequest(claudeRequest *claude.ClaudeRequest) {
+	if p.Context == nil {
+		return
+	}
+
+	// 从 gin.Context 中获取原始请求体
+	rawBody, exists := p.Context.Get(config.GinRequestBodyKey)
+	if !exists {
+		return
+	}
+
+	bodyBytes, ok := rawBody.([]byte)
+	if !ok {
+		return
+	}
+
+	// 解析原始请求体为 map
+	var requestMap map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &requestMap); err != nil {
+		return
+	}
+
+	// 提取 metadata 字段
+	if metadataInterface, exists := requestMap["metadata"]; exists {
+		if metadataMap, ok := metadataInterface.(map[string]interface{}); ok {
+			// 提取 user_id
+			if userID, ok := metadataMap["user_id"].(string); ok && userID != "" {
+				if claudeRequest.Metadata == nil {
+					claudeRequest.Metadata = &claude.ClaudeMetadata{}
+				}
+				claudeRequest.Metadata.UserId = userID
+			}
+		}
+	}
+}
+
 // applyClaudeCodeCompatibility 应用 ClaudeCode 兼容性处理
 // 确保 system 字段中包含必需的 "You are Claude Code, Anthropic's official CLI for Claude." 缓存控制项
 // 并添加 metadata.user_id
 func (p *ClaudeCodeProvider) applyClaudeCodeCompatibility(claudeRequest *claude.ClaudeRequest) {
+	// 首先尝试从原始请求体中提取 metadata
+	p.extractMetadataFromOriginalRequest(claudeRequest)
 	// 必需的缓存控制项
 	requiredCacheItem := claude.MessageContent{
 		Type: "text",

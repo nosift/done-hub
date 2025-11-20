@@ -132,6 +132,7 @@ func ConvertFromChatOpenai(request *types.ChatCompletionRequest) (*ClaudeRequest
 		Temperature:   request.Temperature,
 		TopP:          request.TopP,
 		Stream:        request.Stream,
+		Metadata:      nil,
 	}
 
 	if request.Stop != nil {
