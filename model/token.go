@@ -243,7 +243,14 @@ func (token *Token) Update() error {
 
 func (token *Token) SelectUpdate() error {
 	// This can update zero values
-	return DB.Model(token).Select("accessed_time", "status").Updates(token).Error
+	err := DB.Model(token).Select("accessed_time", "status").Updates(token).Error
+
+	// 清除缓存
+	if err == nil && config.RedisEnabled {
+		redis.RedisDel(fmt.Sprintf(UserTokensKey, token.Key))
+	}
+
+	return err
 }
 
 func (token *Token) Delete() error {
@@ -290,6 +297,19 @@ func increaseTokenQuota(id int, quota int) (err error) {
 			"accessed_time": utils.GetTimestamp(),
 		},
 	).Error
+
+	// 清除缓存
+	if err == nil && config.RedisEnabled {
+		var key string
+		keyCol := "`key`"
+		if common.UsingPostgreSQL {
+			keyCol = `"key"`
+		}
+		if getErr := DB.Model(&Token{}).Where("id = ?", id).Select(keyCol).Scan(&key).Error; getErr == nil && key != "" {
+			redis.RedisDel(fmt.Sprintf(UserTokensKey, key))
+		}
+	}
+
 	return err
 }
 
@@ -312,6 +332,19 @@ func decreaseTokenQuota(id int, quota int) (err error) {
 			"accessed_time": utils.GetTimestamp(),
 		},
 	).Error
+
+	// 清除缓存
+	if err == nil && config.RedisEnabled {
+		var key string
+		keyCol := "`key`"
+		if common.UsingPostgreSQL {
+			keyCol = `"key"`
+		}
+		if getErr := DB.Model(&Token{}).Where("id = ?", id).Select(keyCol).Scan(&key).Error; getErr == nil && key != "" {
+			redis.RedisDel(fmt.Sprintf(UserTokensKey, key))
+		}
+	}
+
 	return err
 }
 

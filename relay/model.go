@@ -40,7 +40,11 @@ func filterModelsByTokenLimit(c *gin.Context, models []string) []string {
 		return models
 	}
 
-	if !setting.Limits.LimitModelSetting.Enabled || len(setting.Limits.LimitModelSetting.Models) == 0 {
+	if !setting.Limits.LimitModelSetting.Enabled {
+		return models
+	}
+
+	if len(setting.Limits.LimitModelSetting.Models) == 0 {
 		return models
 	}
 
@@ -95,10 +99,10 @@ func ListModelsByToken(c *gin.Context) {
 	// 根据 OwnedBy 排序
 	sort.Slice(groupOpenAIModels, func(i, j int) bool {
 		if groupOpenAIModels[i].OwnedBy == nil {
-			return true // 假设 nil 值小于任何非 nil 值
+			return true
 		}
 		if groupOpenAIModels[j].OwnedBy == nil {
-			return false // 假设任何非 nil 值大于 nil 值
+			return false
 		}
 		return *groupOpenAIModels[i].OwnedBy < *groupOpenAIModels[j].OwnedBy
 	})
