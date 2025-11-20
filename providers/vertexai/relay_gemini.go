@@ -33,7 +33,7 @@ func (p *VertexAIProvider) CreateGeminiChat(request *gemini.GeminiChatRequest) (
 	}
 
 	usage := p.GetUsage()
-	*usage = gemini.ConvertOpenAIUsage(geminiResponse.UsageMetadata)
+	*usage = gemini.ConvertOpenAIUsageWithFallback(geminiResponse.UsageMetadata, geminiResponse)
 
 	return geminiResponse, nil
 }

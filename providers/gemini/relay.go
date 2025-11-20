@@ -10,6 +10,24 @@ import (
 	"strings"
 )
 
+// countImagesInResponse 统计响应中的图片数量
+func countImagesInResponse(response *GeminiChatResponse) int {
+	if response == nil || len(response.Candidates) == 0 {
+		return 0
+	}
+
+	imageCount := 0
+	for _, candidate := range response.Candidates {
+		for _, part := range candidate.Content.Parts {
+			if part.InlineData != nil && strings.HasPrefix(part.InlineData.MimeType, "image/") && len(part.InlineData.Data) > 0 {
+				imageCount++
+			}
+		}
+	}
+
+	return imageCount
+}
+
 type GeminiRelayStreamHandler struct {
 	Usage     *types.Usage
 	Prefix    string
@@ -98,7 +116,22 @@ func (h *GeminiRelayStreamHandler) HandlerStream(rawLine *[]byte, dataChan chan 
 		return
 	}
 
-	if geminiResponse.UsageMetadata == nil {
+	// 检查 UsageMetadata 是否为 nil 或所有字段都是 0（VertexAI 流式响应中间块只有 trafficType）
+	hasValidUsage := false
+	if geminiResponse.UsageMetadata != nil &&
+		(geminiResponse.UsageMetadata.TotalTokenCount > 0 || geminiResponse.UsageMetadata.PromptTokenCount > 0) {
+		hasValidUsage = true
+	}
+
+	if !hasValidUsage {
+		// 没有有效的 UsageMetadata，尝试从响应内容中统计图片数量
+		imageCount := countImagesInResponse(&geminiResponse)
+		if imageCount > 0 {
+			// 按图片数量计费：每张图片 1290 tokens
+			const tokensPerImage = 1290
+			h.Usage.CompletionTokens = imageCount * tokensPerImage
+			h.Usage.TotalTokens = h.Usage.PromptTokens + h.Usage.CompletionTokens
+		}
 		dataChan <- rawStr
 		return
 	}

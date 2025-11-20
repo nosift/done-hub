@@ -425,7 +425,7 @@ func ConvertFromChatOpenai(request *types.ChatCompletionRequest) (*GeminiChatReq
 		},
 	}
 
-	if model_utils.HasPrefixCaseInsensitive(request.Model, "gemini-2.0-flash-exp") || model_utils.HasPrefixCaseInsensitive(request.Model, "gemini-2.5-flash-image") {
+	if model_utils.HasPrefixCaseInsensitive(request.Model, "gemini-2.0-flash-exp") || model_utils.HasPrefixCaseInsensitive(request.Model, "gemini-2.5-flash-image") || model_utils.HasPrefixCaseInsensitive(request.Model, "gemini-3-pro-image") {
 		geminiRequest.GenerationConfig.ResponseModalities = []string{"Text", "Image"}
 	}
 
@@ -627,7 +627,7 @@ func ConvertToChatOpenai(provider base.ProviderInterface, response *GeminiChatRe
 	}
 
 	usage := provider.GetUsage()
-	*usage = ConvertOpenAIUsage(response.UsageMetadata)
+	*usage = ConvertOpenAIUsageWithFallback(response.UsageMetadata, response)
 	openaiResponse.Usage = usage
 
 	return
@@ -715,7 +715,22 @@ func (h *GeminiStreamHandler) convertToOpenaiStream(geminiResponse *GeminiChatRe
 	}
 
 	// 和ExecutableCode的tokens共用，所以跳过
-	if geminiResponse.UsageMetadata == nil {
+	// 检查是否有有效的 UsageMetadata
+	hasValidUsage := false
+	if geminiResponse.UsageMetadata != nil &&
+		(geminiResponse.UsageMetadata.TotalTokenCount > 0 || geminiResponse.UsageMetadata.PromptTokenCount > 0) {
+		hasValidUsage = true
+	}
+
+	if !hasValidUsage {
+		// 没有有效的 UsageMetadata，尝试从响应内容中统计图片数量
+		imageCount := countImagesInResponse(geminiResponse)
+		if imageCount > 0 {
+			// 按图片数量计费：每张图片 1290 tokens
+			const tokensPerImage = 1290
+			h.Usage.CompletionTokens = imageCount * tokensPerImage
+			h.Usage.TotalTokens = h.Usage.PromptTokens + h.Usage.CompletionTokens
+		}
 		return
 	}
 
@@ -819,6 +834,35 @@ func ConvertOpenAIUsage(geminiUsage *GeminiUsageMetadata) types.Usage {
 	}
 
 	return usage
+}
+
+// ConvertOpenAIUsageWithFallback 转换 UsageMetadata，如果没有有效的 token 统计则使用图片统计兜底
+func ConvertOpenAIUsageWithFallback(geminiUsage *GeminiUsageMetadata, response *GeminiChatResponse) types.Usage {
+	// 检查是否有有效的 UsageMetadata
+	hasValidUsage := geminiUsage != nil &&
+		(geminiUsage.TotalTokenCount > 0 || geminiUsage.PromptTokenCount > 0)
+
+	if hasValidUsage {
+		return ConvertOpenAIUsage(geminiUsage)
+	}
+
+	// 没有有效的 UsageMetadata，尝试从响应内容中统计图片数量
+	imageCount := countImagesInResponse(response)
+	if imageCount > 0 {
+		const tokensPerImage = 1290
+		return types.Usage{
+			PromptTokens:     0,
+			CompletionTokens: imageCount * tokensPerImage,
+			TotalTokens:      imageCount * tokensPerImage,
+		}
+	}
+
+	// 完全没有数据，返回空 Usage
+	return types.Usage{
+		PromptTokens:     0,
+		CompletionTokens: 0,
+		TotalTokens:      0,
+	}
 }
 
 func (p *GeminiProvider) pluginHandle(request *GeminiChatRequest) {
