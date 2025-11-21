@@ -170,7 +170,7 @@ func RequestErrorHandle(token string) requester.HttpErrorHandler {
 							if duration, parseErr := time.ParseDuration(quotaResetDelay); parseErr == nil {
 								resetTimestamp := time.Now().Unix() + int64(duration.Seconds())
 								openAIError.RateLimitResetAt = resetTimestamp
-								logger.LogInfo(nil, fmt.Sprintf("[GeminiCli] Rate limit detected, quota reset delay: %s, reset at: %s",
+								logger.SysLog(fmt.Sprintf("[GeminiCli] Rate limit detected, quota reset delay: %s, reset at: %s",
 									quotaResetDelay, time.Unix(resetTimestamp, 0).Format(time.RFC3339)))
 								break
 							}
@@ -195,7 +195,7 @@ func RequestErrorHandle(token string) requester.HttpErrorHandler {
 							if duration, parseErr := time.ParseDuration(quotaResetDelay); parseErr == nil {
 								resetTimestamp := time.Now().Unix() + int64(duration.Seconds())
 								openAIError.RateLimitResetAt = resetTimestamp
-								logger.LogInfo(nil, fmt.Sprintf("[GeminiCli] Rate limit detected, quota reset delay: %s, reset at: %s",
+								logger.SysLog(fmt.Sprintf("[GeminiCli] Rate limit detected, quota reset delay: %s, reset at: %s",
 									quotaResetDelay, time.Unix(resetTimestamp, 0).Format(time.RFC3339)))
 								break
 							}

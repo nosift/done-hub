@@ -248,9 +248,11 @@ func LogDebug(ctx context.Context, msg string) {
 }
 
 func logHelper(ctx context.Context, level string, msg string) {
-	id, ok := ctx.Value(RequestIdKey).(string)
-	if !ok {
-		id = "unknown"
+	id := "unknown"
+	if ctx != nil {
+		if ctxId, ok := ctx.Value(RequestIdKey).(string); ok {
+			id = ctxId
+		}
 	}
 
 	logMsg := fmt.Sprintf("%s | %s \n", id, msg)

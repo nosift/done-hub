@@ -128,6 +128,10 @@ func (p *BaseProvider) SetUsage(usage *types.Usage) {
 
 func (p *BaseProvider) SetContext(c *gin.Context) {
 	p.Context = c
+	// 同时更新 Requester 的 Context，以便在发送请求时能够传递 Request ID 等信息
+	if c != nil && p.Requester != nil {
+		p.Requester.Context = c.Request.Context()
+	}
 }
 
 func (p *BaseProvider) GetContext() *gin.Context {

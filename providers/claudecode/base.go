@@ -113,7 +113,7 @@ func RequestErrorHandle(accessToken string) requester.HttpErrorHandler {
 			if resetHeader != "" {
 				if resetTimestamp, parseErr := strconv.ParseInt(resetHeader, 10, 64); parseErr == nil {
 					openAIError.RateLimitResetAt = resetTimestamp
-					logger.LogInfo(nil, fmt.Sprintf("[ClaudeCode] Rate limit detected, reset at: %d (%s)",
+					logger.SysLog(fmt.Sprintf("[ClaudeCode] Rate limit detected, reset at: %d (%s)",
 						resetTimestamp, time.Unix(resetTimestamp, 0).Format(time.RFC3339)))
 				}
 			}
