@@ -186,6 +186,9 @@ type GeminiPart struct {
 	ExecutableCode      *GeminiPartExecutableCode      `json:"executableCode,omitempty"`
 	CodeExecutionResult *GeminiPartCodeExecutionResult `json:"codeExecutionResult,omitempty"`
 	Thought             bool                           `json:"thought,omitempty"` // 是否是思考内容
+	ThoughtSignature    json.RawMessage                `json:"thoughtSignature,omitempty"`
+	MediaResolution     json.RawMessage                `json:"mediaResolution,omitempty"`
+	VideoMetadata       json.RawMessage                `json:"videoMetadata,omitempty"`
 }
 
 type GeminiPartExecutableCode struct {
@@ -406,8 +409,12 @@ func (candidate *GeminiChatCandidate) ToOpenAIChoice(request *types.ChatCompleti
 }
 
 type GeminiFunctionResponse struct {
-	Name     string `json:"name,omitempty"`
-	Response any    `json:"response,omitempty"`
+	Name         string          `json:"name,omitempty"`
+	Response     any             `json:"response,omitempty"`
+	WillContinue json.RawMessage `json:"willContinue,omitempty"`
+	Scheduling   json.RawMessage `json:"scheduling,omitempty"`
+	Parts        json.RawMessage `json:"parts,omitempty"`
+	ID           json.RawMessage `json:"id,omitempty"`
 }
 
 type GeminiFunctionResponseContent struct {
