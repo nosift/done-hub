@@ -9,6 +9,9 @@ import (
 var HTTPClient *http.Client
 
 func InitHttpClient() {
+	// TLS 握手超时配置，默认 30 秒，可通过环境变量 TLS_HANDSHAKE_TIMEOUT 配置
+	tlsHandshakeTimeout := time.Duration(utils.GetOrDefault("tls_handshake_timeout", 30)) * time.Second
+
 	trans := &http.Transport{
 		DialContext: utils.Socks5ProxyFunc,
 		Proxy:       utils.ProxyFunc,
@@ -19,7 +22,7 @@ func InitHttpClient() {
 		IdleConnTimeout:     90 * time.Second,
 
 		// 超时配置 - 针对 SSE 长连接优化
-		TLSHandshakeTimeout:   10 * time.Second,
+		TLSHandshakeTimeout:   tlsHandshakeTimeout,
 		ExpectContinueTimeout: 1 * time.Second,
 		ResponseHeaderTimeout: 0,
 
