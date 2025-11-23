@@ -42,7 +42,8 @@ func RelayRerank(c *gin.Context) {
 
 	retryTimes := config.RetryTimes
 	if done || !shouldRetry(c, apiErr, channel.Type) {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("relay error happen, status code is %d, won't retry in this case", apiErr.StatusCode))
+		logger.LogError(c.Request.Context(), fmt.Sprintf("retry_skip model=%s status_code=%d done=%t should_retry=%t reason=\"won't retry in this case\"",
+			c.GetString("new_model"), apiErr.StatusCode, done, shouldRetry(c, apiErr, channel.Type)))
 		retryTimes = 0
 	}
 
@@ -63,6 +64,10 @@ func RelayRerank(c *gin.Context) {
 	c.Set("total_channels_at_start", totalChannelsAtStart)
 	c.Set("actual_retry_times", actualRetryTimes)
 	c.Set("attempt_count", 1) // 初始化尝试计数
+
+	// 记录初始失败 - 使用统一的结构化日志格式
+	logger.LogError(c.Request.Context(), fmt.Sprintf("retry_start model=%s total_channels=%d config_max_retries=%d actual_max_retries=%d initial_error=\"%s\" status_code=%d",
+		modelName, totalChannelsAtStart, retryTimes, actualRetryTimes, utils.TruncateBase64InMessage(apiErr.OpenAIError.Message), apiErr.StatusCode))
 
 	for i := actualRetryTimes; i > 0; i-- {
 		// 冻结通道
@@ -93,19 +98,38 @@ func RelayRerank(c *gin.Context) {
 		// 获取实际重试次数
 		actualRetryTimes := c.GetInt("actual_retry_times")
 
-		logger.LogError(c.Request.Context(), fmt.Sprintf("using channel #%d(%s) to retry (attempt %d/%d, remain channels %d, total channels %d)", channel.Id, channel.Name, attemptCount, actualRetryTimes, remainChannels, c.GetInt("total_channels_at_start")))
+		// 记录重试尝试 - 使用统一的结构化日志格式
+		cooldownApplied := false // rerank 中已经调用了 shouldCooldowns
+		logger.LogWarn(c.Request.Context(), fmt.Sprintf("retry_attempt attempt=%d/%d channel_id=%d channel_name=\"%s\" remaining_channels=%d cooldown_applied=%t",
+			attemptCount, actualRetryTimes, channel.Id, channel.Name, remainChannels, cooldownApplied))
 
 		apiErr, done = RelayHandler(relay)
 		if apiErr == nil {
+			// 重试成功
+			logger.LogInfo(c.Request.Context(), fmt.Sprintf("retry_success attempt=%d/%d channel_id=%d final_channel=\"%s\"",
+				attemptCount, actualRetryTimes, channel.Id, channel.Name))
 			return
 		}
+
+		// 记录重试失败
+		logger.LogError(c.Request.Context(), fmt.Sprintf("retry_failed attempt=%d/%d channel_id=%d status_code=%d error_type=\"%s\" error=\"%s\"",
+			attemptCount, actualRetryTimes, channel.Id, apiErr.StatusCode, apiErr.OpenAIError.Type, utils.TruncateBase64InMessage(apiErr.OpenAIError.Message)))
+
 		go processChannelRelayError(c.Request.Context(), channel.Id, channel.Name, apiErr, channel.Type)
 		if done || !shouldRetry(c, apiErr, channel.Type) {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("retry_stop_condition attempt=%d/%d done=%t should_retry=%t",
+				attemptCount, actualRetryTimes, done, shouldRetry(c, apiErr, channel.Type)))
 			break
 		}
 	}
 
+	// 记录最终失败
 	if apiErr != nil {
+		finalAttempt := c.GetInt("attempt_count")
+		actualRetryTimes := c.GetInt("actual_retry_times")
+		logger.LogError(c.Request.Context(), fmt.Sprintf("retry_exhausted model=%s total_attempts=%d actual_max_retries=%d config_max_retries=%d final_error=\"%s\" status_code=%d",
+			modelName, finalAttempt, actualRetryTimes, retryTimes, utils.TruncateBase64InMessage(apiErr.OpenAIError.Message), apiErr.StatusCode))
+
 		if apiErr.StatusCode == http.StatusTooManyRequests {
 			apiErr.OpenAIError.Message = "当前分组上游负载已饱和，请稍后再试"
 		}

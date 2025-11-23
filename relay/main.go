@@ -64,7 +64,8 @@ func Relay(c *gin.Context) {
 
 	retryTimes := config.RetryTimes
 	if done || !shouldRetry(c, apiErr, channel.Type) {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("relay error happen, status code is %d, won't retry in this case", apiErr.StatusCode))
+		logger.LogError(c.Request.Context(), fmt.Sprintf("retry_skip model=%s status_code=%d done=%t should_retry=%t reason=\"won't retry in this case\"",
+			c.GetString("new_model"), apiErr.StatusCode, done, shouldRetry(c, apiErr, channel.Type)))
 		retryTimes = 0
 	}
 
@@ -162,8 +163,8 @@ func Relay(c *gin.Context) {
 	// 记录最终失败
 	finalAttempt := c.GetInt("attempt_count")
 	actualRetryTimes = c.GetInt("actual_retry_times")
-	logger.LogError(c.Request.Context(), fmt.Sprintf("retry_exhausted total_attempts=%d actual_max_retries=%d config_max_retries=%d final_error=\"%s\" status_code=%d",
-		finalAttempt, actualRetryTimes, retryTimes, utils.TruncateBase64InMessage(apiErr.OpenAIError.Message), apiErr.StatusCode))
+	logger.LogError(c.Request.Context(), fmt.Sprintf("retry_exhausted model=%s total_attempts=%d actual_max_retries=%d config_max_retries=%d final_error=\"%s\" status_code=%d",
+		modelName, finalAttempt, actualRetryTimes, retryTimes, utils.TruncateBase64InMessage(apiErr.OpenAIError.Message), apiErr.StatusCode))
 
 	if apiErr != nil {
 		// 确保 channel_type 存在，用于 FilterOpenAIErr 正确过滤错误

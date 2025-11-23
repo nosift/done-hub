@@ -249,13 +249,22 @@ func LogDebug(ctx context.Context, msg string) {
 
 func logHelper(ctx context.Context, level string, msg string) {
 	id := "unknown"
+	userId := 0
 	if ctx != nil {
 		if ctxId, ok := ctx.Value(RequestIdKey).(string); ok {
 			id = ctxId
 		}
+		if ctxUserId, ok := ctx.Value("id").(int); ok {
+			userId = ctxUserId
+		}
 	}
 
-	logMsg := fmt.Sprintf("%s | %s \n", id, msg)
+	var logMsg string
+	if userId > 0 {
+		logMsg = fmt.Sprintf("%s | user_id=%d %s \n", id, userId, msg)
+	} else {
+		logMsg = fmt.Sprintf("%s | %s \n", id, msg)
+	}
 
 	// Add to in-memory log history
 	logHistory.AddEntry(level, logMsg)

@@ -25,13 +25,13 @@ func SetRelayRouter(router *gin.Engine) {
 
 func setOpenAIRouter(router *gin.Engine) {
 	modelsRouter := router.Group("/v1/models")
-	modelsRouter.Use(middleware.OpenaiAuth(), middleware.Distribute())
+	modelsRouter.Use(middleware.OpenaiAuth(), middleware.ContextUserId(), middleware.Distribute())
 	{
 		modelsRouter.GET("", relay.ListModelsByToken)
 		modelsRouter.GET("/:model", relay.RetrieveModel)
 	}
 	relayV1Router := router.Group("/v1")
-	relayV1Router.Use(middleware.RelayPanicRecover(), middleware.OpenaiAuth(), middleware.Distribute(), middleware.DynamicRedisRateLimiter())
+	relayV1Router.Use(middleware.RelayPanicRecover(), middleware.OpenaiAuth(), middleware.ContextUserId(), middleware.Distribute(), middleware.DynamicRedisRateLimiter())
 	{
 		relayV1Router.POST("/completions", relay.Relay)
 		relayV1Router.POST("/chat/completions", relay.Relay)
@@ -78,7 +78,7 @@ func setMJRouter(router *gin.Engine) {
 // Path: router/relay-router.go
 func registerMjRouterGroup(relayMjRouter *gin.RouterGroup) {
 	relayMjRouter.GET("/image/:id", midjourney.RelayMidjourneyImage)
-	relayMjRouter.Use(middleware.RelayMJPanicRecover(), middleware.MjAuth(), middleware.Distribute(), middleware.DynamicRedisRateLimiter())
+	relayMjRouter.Use(middleware.RelayMJPanicRecover(), middleware.MjAuth(), middleware.ContextUserId(), middleware.Distribute(), middleware.DynamicRedisRateLimiter())
 	{
 		relayMjRouter.POST("/submit/action", midjourney.RelayMidjourney)
 		relayMjRouter.POST("/submit/shorten", midjourney.RelayMidjourney)
@@ -99,7 +99,7 @@ func registerMjRouterGroup(relayMjRouter *gin.RouterGroup) {
 
 func setSunoRouter(router *gin.Engine) {
 	relaySunoRouter := router.Group("/suno")
-	relaySunoRouter.Use(middleware.RelaySunoPanicRecover(), middleware.OpenaiAuth(), middleware.Distribute(), middleware.DynamicRedisRateLimiter())
+	relaySunoRouter.Use(middleware.RelaySunoPanicRecover(), middleware.OpenaiAuth(), middleware.ContextUserId(), middleware.Distribute(), middleware.DynamicRedisRateLimiter())
 	{
 		relaySunoRouter.POST("/submit/:action", task.RelayTaskSubmit)
 		relaySunoRouter.POST("/fetch", suno.GetFetch)
@@ -110,7 +110,7 @@ func setSunoRouter(router *gin.Engine) {
 func setClaudeRouter(router *gin.Engine) {
 	relayClaudeRouter := router.Group("/claude")
 	relayV1Router := relayClaudeRouter.Group("/v1")
-	relayV1Router.Use(middleware.APIEnabled("claude"), middleware.RelayCluadePanicRecover(), middleware.ClaudeAuth(), middleware.Distribute(), middleware.DynamicRedisRateLimiter())
+	relayV1Router.Use(middleware.APIEnabled("claude"), middleware.RelayCluadePanicRecover(), middleware.ClaudeAuth(), middleware.ContextUserId(), middleware.Distribute(), middleware.DynamicRedisRateLimiter())
 	{
 		relayV1Router.POST("/messages", relay.Relay)
 		relayV1Router.GET("/models", relay.ListClaudeModelsByToken)
@@ -119,7 +119,7 @@ func setClaudeRouter(router *gin.Engine) {
 
 func setGeminiRouter(router *gin.Engine) {
 	relayGeminiRouter := router.Group("/gemini")
-	relayGeminiRouter.Use(middleware.APIEnabled("gemini"), middleware.RelayGeminiPanicRecover(), middleware.GeminiAuth(), middleware.Distribute(), middleware.DynamicRedisRateLimiter())
+	relayGeminiRouter.Use(middleware.APIEnabled("gemini"), middleware.RelayGeminiPanicRecover(), middleware.GeminiAuth(), middleware.ContextUserId(), middleware.Distribute(), middleware.DynamicRedisRateLimiter())
 	{
 		relayGeminiRouter.POST("/:version/models/:model", relay.Relay)
 		relayGeminiRouter.GET("/:version/models", relay.ListGeminiModelsByToken)
@@ -128,7 +128,7 @@ func setGeminiRouter(router *gin.Engine) {
 
 func setRecraftRouter(router *gin.Engine) {
 	relayRecraftRouter := router.Group("/recraftAI/v1")
-	relayRecraftRouter.Use(middleware.RelayPanicRecover(), middleware.OpenaiAuth(), middleware.Distribute(), middleware.DynamicRedisRateLimiter())
+	relayRecraftRouter.Use(middleware.RelayPanicRecover(), middleware.OpenaiAuth(), middleware.ContextUserId(), middleware.Distribute(), middleware.DynamicRedisRateLimiter())
 	{
 		relayRecraftRouter.POST("/images/generations", relay.Relay)
 		relayRecraftRouter.POST("/images/vectorize", relay.RelayRecraftAI)
@@ -141,7 +141,7 @@ func setRecraftRouter(router *gin.Engine) {
 
 func setKlingRouter(router *gin.Engine) {
 	relayKlingRouter := router.Group("/kling")
-	relayKlingRouter.Use(middleware.RelayKlingPanicRecover(), middleware.OpenaiAuth(), middleware.Distribute())
+	relayKlingRouter.Use(middleware.RelayKlingPanicRecover(), middleware.OpenaiAuth(), middleware.ContextUserId(), middleware.Distribute())
 	relayKlingRouter.GET("/v1/videos/text2video/:id", kling.GetFetchByID)
 	relayKlingRouter.GET("/v1/videos/image2video/:id", kling.GetFetchByID)
 
