@@ -93,13 +93,13 @@ func (q *Quota) PreQuotaConsumption() *types.OpenAIErrorWithStatusCode {
 	}
 
 	if userQuota < q.preConsumedQuota {
-		return common.ErrorWrapper(errors.New("user quota is not enough"), "insufficient_user_quota", http.StatusPaymentRequired)
+		return common.ErrorWrapperLocal(errors.New("user quota is not enough"), "insufficient_user_quota", http.StatusPaymentRequired)
 	}
 
 	if q.preConsumedQuota > 0 {
 		err := model.PreConsumeTokenQuota(q.tokenId, q.preConsumedQuota)
 		if err != nil {
-			return common.ErrorWrapper(err, "pre_consume_token_quota_failed", http.StatusForbidden)
+			return common.ErrorWrapperLocal(err, "pre_consume_token_quota_failed", http.StatusForbidden)
 		}
 		_ = model.CacheUpdateUserQuota(q.userId)
 		q.HandelStatus = true
