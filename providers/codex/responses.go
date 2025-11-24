@@ -89,16 +89,26 @@ func (p *CodexProvider) CreateResponsesStream(request *types.OpenAIResponsesRequ
 
 // prepareCodexRequest 准备 Codex 请求参数
 func (p *CodexProvider) prepareCodexRequest(request *types.OpenAIResponsesRequest) {
-	// 模型名称规范化：gpt-5-* 系列统一为 gpt-5
+	// 1. 模型名称规范化：gpt-5-* 系列统一为 gpt-5
 	if len(request.Model) > 6 && request.Model[:6] == "gpt-5-" && request.Model != "gpt-5-codex" {
 		request.Model = "gpt-5"
 	}
 
-	// Codex API 要求 store 参数必须设置为 false
+	// 2. Codex API 要求 store 参数必须设置为 false
 	storeFalse := false
 	request.Store = &storeFalse
 
-	// 适配 Codex CLI 格式
+	// 3. 处理 temperature 和 top_p 冲突
+	// 当两者都存在时，优先保留 temperature，删除 top_p
+	// 这是因为某些 API 不允许同时设置这两个参数
+	if request.Temperature != nil && request.TopP != nil {
+		request.TopP = nil
+	}
+
+	// 4. 适配 Codex CLI 格式
+	// 注意：metadata 字段处理（参考 Demo 的 delete processedBody.metadata）
+	// Go 通过结构体定义自动过滤：OpenAIResponsesRequest 中未定义 metadata 字段，
+	// 因此在 JSON 序列化时会自动忽略，效果等同于 Demo 的显式删除
 	p.adaptCodexCLI(request)
 }
 

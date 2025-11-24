@@ -98,44 +98,29 @@ func (p *CodexProvider) chatToResponsesRequest(request *types.ChatCompletionRequ
 	// 使用标准的转换方法
 	responsesRequest := request.ToResponsesRequest()
 
-	// 模型名称规范化：gpt-5-* 系列统一为 gpt-5（参考 Demo）
+	// 1. 模型名称规范化：gpt-5-* 系列统一为 gpt-5
 	if len(responsesRequest.Model) > 6 && responsesRequest.Model[:6] == "gpt-5-" && responsesRequest.Model != "gpt-5-codex" {
 		responsesRequest.Model = "gpt-5"
 	}
 
-	// Codex API 要求 store 参数必须设置为 false
+	// 2. Codex API 要求 store 参数必须设置为 false
 	storeFalse := false
 	responsesRequest.Store = &storeFalse
 
-	// 保持原始的 stream 值（不强制修改）
-	p.adaptToCodexCLI(responsesRequest)
+	// 3. 处理 temperature 和 top_p 冲突
+	// 当两者都存在时，优先保留 temperature，删除 top_p
+	// 这是因为某些 API 不允许同时设置这两个参数
+	if responsesRequest.Temperature != nil && responsesRequest.TopP != nil {
+		responsesRequest.TopP = nil
+	}
+
+	// 4. 适配 Codex CLI 格式（使用统一的方法）
+	// 注意：metadata 字段处理
+	// Go 通过结构体定义自动过滤：OpenAIResponsesRequest 中未定义 metadata 字段，
+	// 因此在 JSON 序列化时会自动忽略，效果等同于 Demo 的显式删除
+	p.adaptCodexCLI(responsesRequest)
 
 	return responsesRequest
-}
-
-// adaptToCodexCLI 适配 Codex CLI 格式
-func (p *CodexProvider) adaptToCodexCLI(request *types.OpenAIResponsesRequest) {
-	// 检测是否为 Codex CLI 请求（通过 instructions 字段判断）
-	isCodexCLI := false
-	if request.Instructions != "" {
-		instructions := request.Instructions
-		isCodexCLI = len(instructions) > 50 && (len(instructions) >= len("You are a coding agent running in the Codex CLI") &&
-			instructions[:len("You are a coding agent running in the Codex CLI")] == "You are a coding agent running in the Codex CLI" ||
-			len(instructions) >= len("You are Codex") &&
-				instructions[:len("You are Codex")] == "You are Codex")
-	}
-
-	// 如果不是 Codex CLI 请求，则进行适配
-	if !isCodexCLI {
-		// 移除不兼容的请求体字段（Codex API 不支持这些字段）
-		request.Temperature = nil
-		request.TopP = nil
-		request.MaxOutputTokens = 0
-		// 但这些字段在我们的结构体中可能不存在或命名不同
-
-		// 设置固定的 Codex CLI instructions
-		request.Instructions = CodexCLIInstructions
-	}
 }
 
 // applyDefaultHeaders 应用 Codex 默认请求头（只补充缺失的头，不覆盖已有的）
