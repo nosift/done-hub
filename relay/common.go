@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"bytes"
 	"context"
 	"done-hub/common"
 	"done-hub/common/config"
@@ -301,12 +302,18 @@ func fetchChannelByModel(c *gin.Context, modelName string) (*model.Channel, erro
 }
 
 func responseJsonClient(c *gin.Context, data interface{}) *types.OpenAIErrorWithStatusCode {
-	// 将data转换为 JSON
-	responseBody, err := json.Marshal(data)
+	// 将data转换为 JSON，禁用 HTML 转义以避免 & 被转为 \u0026
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	err := encoder.Encode(data)
 	if err != nil {
 		logger.LogError(c.Request.Context(), "marshal_response_body_failed:"+err.Error())
 		return nil
 	}
+
+	// Encode 会在末尾添加换行符，需要去掉
+	responseBody := bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
 
 	c.Writer.Header().Set("Content-Type", "application/json")
 	c.Writer.WriteHeader(http.StatusOK)
