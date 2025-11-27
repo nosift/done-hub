@@ -75,11 +75,6 @@ func RelayRecraftAI(c *gin.Context) {
 	go processChannelRelayError(c.Request.Context(), channel.Id, channel.Name, apiErr, channel.Type)
 
 	retryTimes := config.RetryTimes
-	if !shouldRetry(c, apiErr, channel.Type) {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("relay error happen, status code is %d, won't retry in this case", apiErr.StatusCode))
-		retryTimes = 0
-	}
-
 	// 在重试开始前计算并缓存总渠道数，避免重试过程中动态变化
 	groupName := c.GetString("token_group")
 	if groupName == "" {
@@ -87,6 +82,12 @@ func RelayRecraftAI(c *gin.Context) {
 	}
 	modelName := c.GetString("new_model")
 	totalChannelsAtStart := modelPkg.ChannelGroup.CountAvailableChannels(groupName, modelName)
+
+	if !shouldRetry(c, apiErr, channel.Type) {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("retry_skip model=%s channel_id=%d status_code=%d should_retry=false total_channels=%d error=\"%s\"",
+			modelName, channel.Id, apiErr.StatusCode, totalChannelsAtStart, utils.TruncateBase64InMessage(apiErr.OpenAIError.Message)))
+		retryTimes = 0
+	}
 
 	// 实际重试次数 = min(配置的重试数, 可用渠道数)
 	actualRetryTimes := retryTimes
@@ -98,20 +99,17 @@ func RelayRecraftAI(c *gin.Context) {
 	c.Set("actual_retry_times", actualRetryTimes)
 	c.Set("attempt_count", 1) // 初始化尝试计数
 
+	// 记录初始失败 - 使用统一的结构化日志格式
+	logger.LogError(c.Request.Context(), fmt.Sprintf("retry_start model=%s channel_id=%d total_channels=%d config_max_retries=%d actual_max_retries=%d status_code=%d error=\"%s\"",
+		modelName, channel.Id, totalChannelsAtStart, retryTimes, actualRetryTimes, apiErr.StatusCode, utils.TruncateBase64InMessage(apiErr.OpenAIError.Message)))
+
 	for i := actualRetryTimes; i > 0; i-- {
-		shouldCooldowns(c, channel, apiErr)
+		cooldownApplied := shouldCooldowns(c, channel, apiErr)
 		if recraftProvider, err = getRecraftProvider(c, model); err != nil {
 			continue
 		}
 
 		channel = recraftProvider.GetChannel()
-
-		// 计算渠道信息用于日志显示
-		groupName := c.GetString("token_group")
-		if groupName == "" {
-			groupName = c.GetString("group")
-		}
-		modelName := c.GetString("new_model")
 
 		// 更新尝试计数
 		attemptCount := c.GetInt("attempt_count")
@@ -126,23 +124,43 @@ func RelayRecraftAI(c *gin.Context) {
 		// 获取实际重试次数
 		actualRetryTimes := c.GetInt("actual_retry_times")
 
-		logger.LogError(c.Request.Context(), fmt.Sprintf("using channel #%d(%s) to retry (attempt %d/%d, remain channels %d, total channels %d)", channel.Id, channel.Name, attemptCount, actualRetryTimes, remainChannels, c.GetInt("total_channels_at_start")))
+		// 记录重试尝试 - 使用统一的结构化日志格式
+		logger.LogWarn(c.Request.Context(), fmt.Sprintf("retry_attempt model=%s channel_id=%d attempt=%d/%d remaining_channels=%d total_channels=%d cooldown_applied=%t",
+			modelName, channel.Id, attemptCount, actualRetryTimes, remainChannels, c.GetInt("total_channels_at_start"), cooldownApplied))
 
 		response, apiErr := recraftProvider.CreateRelay(requestURL)
 		if apiErr == nil {
 			quota.Consume(c, usage, false)
 
 			metrics.RecordProvider(c, 200)
+			// 重试成功
+			logger.LogInfo(c.Request.Context(), fmt.Sprintf("retry_success model=%s channel_id=%d attempt=%d/%d total_channels=%d",
+				modelName, channel.Id, attemptCount, actualRetryTimes, c.GetInt("total_channels_at_start")))
 			errWithCode := responseMultipart(c, response)
-			logger.LogError(c.Request.Context(), fmt.Sprintf("relay error happen %v, won't retry in this case", errWithCode))
+			if errWithCode != nil {
+				logger.LogError(c.Request.Context(), fmt.Sprintf("retry_response_error model=%s channel_id=%d error=\"%v\"",
+					modelName, channel.Id, errWithCode))
+			}
 			return
 		}
 
+		// 记录重试失败
+		logger.LogError(c.Request.Context(), fmt.Sprintf("retry_failed model=%s channel_id=%d attempt=%d/%d status_code=%d error_type=\"%s\" error=\"%s\"",
+			modelName, channel.Id, attemptCount, actualRetryTimes, apiErr.StatusCode, apiErr.OpenAIError.Type, utils.TruncateBase64InMessage(apiErr.OpenAIError.Message)))
+
 		go processChannelRelayError(c.Request.Context(), channel.Id, channel.Name, apiErr, channel.Type)
 		if !shouldRetry(c, apiErr, channel.Type) {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("retry_stop_condition model=%s channel_id=%d attempt=%d/%d should_retry=false",
+				modelName, channel.Id, attemptCount, actualRetryTimes))
 			break
 		}
 	}
+
+	// 记录最终失败
+	finalAttempt := c.GetInt("attempt_count")
+	actualRetryTimes = c.GetInt("actual_retry_times")
+	logger.LogError(c.Request.Context(), fmt.Sprintf("retry_exhausted model=%s channel_id=%d total_attempts=%d total_channels=%d config_max_retries=%d actual_max_retries=%d status_code=%d error=\"%s\"",
+		modelName, channel.Id, finalAttempt, c.GetInt("total_channels_at_start"), retryTimes, actualRetryTimes, apiErr.StatusCode, utils.TruncateBase64InMessage(apiErr.OpenAIError.Message)))
 
 	quota.Undo(c)
 	newErrWithCode := FilterOpenAIErr(c, apiErr)
