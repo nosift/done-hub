@@ -2,6 +2,7 @@ package gemini
 
 import (
 	"bytes"
+	"done-hub/common/logger"
 	"done-hub/common/requester"
 	"done-hub/model"
 	"done-hub/providers/base"
@@ -10,8 +11,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"regexp"
 	"strings"
+	"time"
 )
 
 type GeminiProviderFactory struct{}
@@ -70,6 +74,9 @@ func getConfig(version string) base.ProviderConfig {
 	}
 }
 
+// 正则表达式匹配 "Please retry in Xs" 格式的重试时间
+var retryInRegex = regexp.MustCompile(`Please retry in ([0-9.]+)s`)
+
 // 请求错误处理
 func RequestErrorHandle(key string) requester.HttpErrorHandler {
 	return func(resp *http.Response) *types.OpenAIError {
@@ -81,15 +88,43 @@ func RequestErrorHandle(key string) requester.HttpErrorHandler {
 
 		geminiError := &GeminiErrorResponse{}
 		if err := json.NewDecoder(resp.Body).Decode(geminiError); err == nil {
-			return errorHandle(geminiError, key)
+			openAIError := errorHandle(geminiError, key)
+
+			// 解析 429 错误的冻结时间
+			if openAIError != nil && geminiError.ErrorInfo != nil && geminiError.ErrorInfo.Code == http.StatusTooManyRequests {
+				parseRateLimitResetTime(openAIError, geminiError.ErrorInfo)
+			}
+
+			return openAIError
 		} else {
 			geminiErrors := &GeminiErrors{}
 			if err := json.Unmarshal(bodyBytes, geminiErrors); err == nil {
-				return errorHandle(geminiErrors.Error(), key)
+				geminiError := geminiErrors.Error()
+				openAIError := errorHandle(geminiError, key)
+
+				// 解析 429 错误的冻结时间
+				if openAIError != nil && geminiError.ErrorInfo.Code == http.StatusTooManyRequests {
+					parseRateLimitResetTime(openAIError, geminiError.ErrorInfo)
+				}
+
+				return openAIError
 			}
 		}
 
 		return nil
+	}
+}
+
+// parseRateLimitResetTime 从错误消息中解析 "Please retry in Xs" 格式的冻结时间
+func parseRateLimitResetTime(openAIError *types.OpenAIError, errorInfo *GeminiError) {
+	if matches := retryInRegex.FindStringSubmatch(errorInfo.Message); len(matches) == 2 {
+		if duration, err := time.ParseDuration(matches[1] + "s"); err == nil {
+			// 向上取整，确保冻结时间足够
+			resetTimestamp := time.Now().Unix() + int64(math.Ceil(duration.Seconds()))
+			openAIError.RateLimitResetAt = resetTimestamp
+			logger.SysLog(fmt.Sprintf("[Gemini] Rate limit detected, retry in: %ss, reset at: %s",
+				matches[1], time.Unix(resetTimestamp, 0).Format(time.RFC3339)))
+		}
 	}
 }
 
