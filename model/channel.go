@@ -422,6 +422,7 @@ func (channel *Channel) Update(overwrite bool) error {
 
 	if err == nil {
 		ChannelGroup.Load()
+		ChannelGroup.ClearChannelCooldowns(channel.Id)
 	}
 
 	return err
@@ -494,7 +495,13 @@ func UpdateChannelStatusById(id int, status int) {
 
 	tx.Commit()
 
-	go ChannelGroup.ChangeStatus(id, status == config.ChannelStatusEnabled)
+	isEnabled := status == config.ChannelStatusEnabled
+	go ChannelGroup.ChangeStatus(id, isEnabled)
+
+	// 启用渠道时清除冻结缓存
+	if isEnabled {
+		ChannelGroup.ClearChannelCooldowns(id)
+	}
 }
 
 func UpdateChannelUsedQuota(id int, quota int) {

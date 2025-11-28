@@ -147,6 +147,17 @@ func (cc *ChannelsChooser) CleanupExpiredCooldowns() {
 	})
 }
 
+// ClearChannelCooldowns 清除指定渠道的所有冻结缓存
+func (cc *ChannelsChooser) ClearChannelCooldowns(channelId int) {
+	prefix := fmt.Sprintf("%d:", channelId)
+	cc.Cooldowns.Range(func(key, value interface{}) bool {
+		if strings.HasPrefix(key.(string), prefix) {
+			cc.Cooldowns.Delete(key)
+		}
+		return true
+	})
+}
+
 func (cc *ChannelsChooser) Disable(channelId int) {
 	cc.Lock()
 	defer cc.Unlock()
