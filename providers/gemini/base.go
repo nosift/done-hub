@@ -77,6 +77,9 @@ func getConfig(version string) base.ProviderConfig {
 // 正则表达式匹配 "Please retry in Xs" 格式的重试时间
 var retryInRegex = regexp.MustCompile(`Please retry in ([0-9.]+)s`)
 
+// 正则表达式匹配每日配额限制（Quota exceeded + per_day + limit: 0）
+var perDayQuotaRegex = regexp.MustCompile(`Quota exceeded for metric:.*per_day.*limit: 0`)
+
 // 请求错误处理
 func RequestErrorHandle(key string) requester.HttpErrorHandler {
 	return func(resp *http.Response) *types.OpenAIError {
@@ -115,8 +118,9 @@ func RequestErrorHandle(key string) requester.HttpErrorHandler {
 	}
 }
 
-// parseRateLimitResetTime 从错误消息中解析 "Please retry in Xs" 格式的冻结时间
+// parseRateLimitResetTime 从错误消息中解析冻结时间
 func parseRateLimitResetTime(openAIError *types.OpenAIError, errorInfo *GeminiError) {
+	// 方式1: 匹配 "Please retry in Xs" 格式
 	if matches := retryInRegex.FindStringSubmatch(errorInfo.Message); len(matches) == 2 {
 		if duration, err := time.ParseDuration(matches[1] + "s"); err == nil {
 			// 向上取整，确保冻结时间足够
@@ -124,7 +128,21 @@ func parseRateLimitResetTime(openAIError *types.OpenAIError, errorInfo *GeminiEr
 			openAIError.RateLimitResetAt = resetTimestamp
 			logger.SysLog(fmt.Sprintf("[Gemini] Rate limit detected, retry in: %ss, reset at: %s",
 				matches[1], time.Unix(resetTimestamp, 0).Format(time.RFC3339)))
+			return
 		}
+	}
+
+	// 方式2: 每日配额限制，冻结到太平洋时间次日 0:05（冗余5分钟）
+	if perDayQuotaRegex.MatchString(errorInfo.Message) {
+		pst, err := time.LoadLocation("America/Los_Angeles")
+		if err != nil {
+			return
+		}
+		now := time.Now().In(pst)
+		nextReset := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 5, 0, 0, pst)
+		openAIError.RateLimitResetAt = nextReset.Unix()
+		logger.SysLog(fmt.Sprintf("[Gemini] Daily quota exceeded, reset at: %s (Pacific Time)",
+			nextReset.Format(time.RFC3339)))
 	}
 }
 
