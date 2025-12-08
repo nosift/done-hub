@@ -66,12 +66,18 @@ func ErrorToClaudeErr(err error) *ClaudeError {
 }
 
 func ClaudeUsageMerge(usage *Usage, mergeUsage *Usage) {
-	if usage.InputTokens != mergeUsage.InputTokens {
-		usage.InputTokens += mergeUsage.InputTokens
+	if mergeUsage.InputTokens > usage.InputTokens {
+		usage.InputTokens = mergeUsage.InputTokens
 	}
-	usage.OutputTokens += mergeUsage.OutputTokens
-	usage.CacheCreationInputTokens += mergeUsage.CacheCreationInputTokens
-	usage.CacheReadInputTokens += mergeUsage.CacheReadInputTokens
+	if mergeUsage.OutputTokens > usage.OutputTokens {
+		usage.OutputTokens = mergeUsage.OutputTokens
+	}
+	if mergeUsage.CacheCreationInputTokens > usage.CacheCreationInputTokens {
+		usage.CacheCreationInputTokens = mergeUsage.CacheCreationInputTokens
+	}
+	if mergeUsage.CacheReadInputTokens > usage.CacheReadInputTokens {
+		usage.CacheReadInputTokens = mergeUsage.CacheReadInputTokens
+	}
 }
 
 func ClaudeUsageToOpenaiUsage(cUsage *Usage, usage *types.Usage) bool {
