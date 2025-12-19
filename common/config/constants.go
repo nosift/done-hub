@@ -327,6 +327,7 @@ const (
 	ChannelTypeGeminiCli       = 57
 	ChannelTypeClaudeCode      = 58
 	ChannelTypeCodex           = 59
+	ChannelTypeAntigravity     = 60
 )
 
 const (

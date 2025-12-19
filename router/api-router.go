@@ -209,6 +209,14 @@ func SetApiRouter(router *gin.Engine) {
 			codexRoute.POST("/oauth/exchange-code", controller.CodexOAuthCallback)
 		}
 
+		// Antigravity OAuth routes
+		antigravityRoute := apiRouter.Group("/antigravity")
+		{
+			antigravityRoute.POST("/oauth/start", middleware.AdminAuth(), controller.StartAntigravityOAuth)
+			antigravityRoute.GET("/oauth/callback", controller.AntigravityOAuthCallback)
+			antigravityRoute.GET("/oauth/status/:state", middleware.AdminAuth(), controller.GetAntigravityOAuthStatus)
+		}
+
 		channelTagRoute := apiRouter.Group("/channel_tag")
 		channelTagRoute.Use(middleware.AdminAuth())
 		{

@@ -290,14 +290,16 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
   }
 
   // 轮询 OAuth 状态
-  const pollOAuthStatus = async(state, setFieldValue, messageHandlerRef) => {
+  const pollOAuthStatus = async(state, setFieldValue, messageHandlerRef, channelType = 57) => {
     try {
       // 最早检查：如果已经处理过，立即返回，不做任何操作
       if (oauthHandledRef.current) {
         return true
       }
 
-      const res = await API.get(`/api/geminicli/oauth/status/${state}`)
+      // 根据渠道类型选择 API 端点
+      const apiEndpoint = channelType === 60 ? 'antigravity' : 'geminicli'
+      const res = await API.get(`/api/${apiEndpoint}/oauth/status/${state}`)
 
       if (!res.data.success) {
         return false
@@ -364,18 +366,22 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
     })
   }
 
-  // GeminiCli OAuth 授权处理
-  const handleGeminiCliOAuth = async(projectId, proxy, setFieldValue) => {
+  // GeminiCli/Antigravity OAuth 授权处理
+  const handleGeminiCliOAuth = async(projectId, proxy, setFieldValue, channelType = 57) => {
     // 允许 projectId 为空，支持自动检测
     const trimmedProjectId = projectId ? projectId.trim() : ''
     const trimmedProxy = proxy ? proxy.trim() : ''
+
+    // 根据渠道类型选择 API 端点和名称
+    const apiEndpoint = channelType === 60 ? 'antigravity' : 'geminicli'
+    const channelName = channelType === 60 ? 'Antigravity' : 'GeminiCli'
 
     try {
       setOauthLoading(true)
       oauthHandledRef.current = false // 重置处理标志
 
       // 调用后端 API 生成授权 URL（传递代理配置）
-      const res = await API.post('/api/geminicli/oauth/start', {
+      const res = await API.post(`/api/${apiEndpoint}/oauth/start`, {
         channel_id: channelId || 0,
         project_id: trimmedProjectId,
         proxy: trimmedProxy
@@ -393,16 +399,8 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
       setOauthState(state)
       setOauthURL(authURL)
 
-      // 打开新窗口进行授权
-      const width = 600
-      const height = 700
-      const left = window.screen.width / 2 - width / 2
-      const top = window.screen.height / 2 - height / 2
-      const popup = window.open(
-        authURL,
-        'GeminiCli OAuth',
-        `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,location=no,status=no`
-      )
+      // 打开新窗口进行授权（使用新标签页）
+      const popup = window.open(authURL, '_blank')
 
       setOauthWindow(popup)
 
@@ -411,8 +409,9 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
 
       // 监听来自 OAuth 窗口的消息（作为快速路径）
       const handleMessage = (event) => {
-        // 安全检查：确保消息来自我们的域
-        if (event.data && event.data.type === 'geminicli_oauth_result') {
+        // 安全检查：确保消息来自我们的域（支持 geminicli 和 antigravity）
+        const expectedType = channelType === 60 ? 'antigravity_oauth_result' : 'geminicli_oauth_result'
+        if (event.data && event.data.type === expectedType) {
           // 如果已经处理过，直接返回
           if (oauthHandledRef.current) {
             return
@@ -456,7 +455,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
 
       // 开始轮询状态（每 2 秒查询一次）
       const interval = setInterval(async() => {
-        const completed = await pollOAuthStatus(state, setFieldValue, messageHandlerRef)
+        const completed = await pollOAuthStatus(state, setFieldValue, messageHandlerRef, channelType)
         if (completed) {
           clearInterval(interval)
           pollingIntervalRef.current = null
@@ -1464,8 +1463,8 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
                   )}
                 </FormControl>
 
-                {/* GeminiCli OAuth 授权按钮 */}
-                {values.type === 57 && !batchAdd && (
+                {/* GeminiCli/Antigravity OAuth 授权按钮 */}
+                {(values.type === 57 || values.type === 60) && !batchAdd && (
                   <Box sx={{ mt: 2, mb: 2 }}>
                     <Box sx={{ display: 'flex', gap: 1 }}>
                       <Button
@@ -1473,7 +1472,7 @@ const EditModal = ({ open, channelId, onCancel, onOk, groupOptions, isTag, model
                         color="primary"
                         fullWidth
                         disabled={oauthLoading}
-                        onClick={() => handleGeminiCliOAuth(values.other, values.proxy, setFieldValue)}
+                        onClick={() => handleGeminiCliOAuth(values.other, values.proxy, setFieldValue, values.type)}
                         startIcon={oauthLoading ? null : <Icon icon="mdi:google"/>}
                       >
                         {oauthLoading ? '授权中，请完成授权...' : 'OAuth 授权'}

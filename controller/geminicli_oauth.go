@@ -265,24 +265,13 @@ func GeminiCliOAuthCallback(c *gin.Context) {
 			}
 
 			if len(projects) == 0 {
-				logger.LogError(ctx, "No accessible projects found")
-
-				// 保存错误结果到缓存
-				resultCacheKey := OAuthResultCachePrefix + state
-				resultData := OAuthResultData{
-					Success:     false,
-					Message:     "未检测到可访问的项目，请检查权限或手动填写 Project ID 后重新授权",
-					CompletedAt: time.Now().Unix(),
-				}
-				cache.SetCache(resultCacheKey, resultData, OAuthResultCacheDuration)
-
-				renderOAuthResult(c, false, "未检测到可访问的项目，请检查权限或手动填写 Project ID 后重新授权", "", "", state)
-				return
+				logger.LogInfo(ctx, "未检测到可访问的项目，使用随机生成的 Project ID")
+				projectID = generateRandomProjectID()
+			} else {
+				// 选择默认项目
+				projectID = selectDefaultProject(projects)
+				logger.LogInfo(ctx, fmt.Sprintf("通过 Resource Manager API 自动检测到项目 ID: %s (共 %d 个可用项目)", projectID, len(projects)))
 			}
-
-			// 选择默认项目
-			projectID = selectDefaultProject(projects)
-			logger.LogInfo(ctx, fmt.Sprintf("通过 Resource Manager API 自动检测到项目 ID: %s (共 %d 个可用项目)", projectID, len(projects)))
 		} else {
 			logger.LogInfo(ctx, fmt.Sprintf("通过 Code Assist API 自动检测到项目 ID: %s", projectID))
 		}
@@ -806,6 +795,17 @@ func getUserProjects(accessToken, proxyURL string) ([]GoogleCloudProject, error)
 	return activeProjects, nil
 }
 
+// generateRandomProjectID 生成随机的项目 ID（当无法检测到项目时使用）
+func generateRandomProjectID() string {
+	randomBytes := make([]byte, 4)
+	if _, err := rand.Read(randomBytes); err != nil {
+		// 降级使用时间戳
+		randomBytes = []byte(fmt.Sprintf("%08x", time.Now().UnixNano()&0xFFFFFFFF))[:4]
+	}
+	randomID := fmt.Sprintf("%x", randomBytes)
+	return fmt.Sprintf("projects/random-%s/locations/global", randomID)
+}
+
 // selectDefaultProject 从项目列表中选择默认项目
 func selectDefaultProject(projects []GoogleCloudProject) string {
 	if len(projects) == 0 {
@@ -966,61 +966,61 @@ func onboardUser(ctx context.Context, accessToken, proxyURL string) (string, err
 
 	client := createHTTPClient(proxyURL, 30*time.Second)
 
-	// 只发送一次 onboardUser 请求
-	req, err := http.NewRequest("POST", requestURL, bytes.NewReader(bodyBytes))
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "GeminiCLI/0.1.5 (Windows; AMD64)")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to send request: %w", err)
-	}
-
-	respBody, err := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if err != nil {
-		return "", fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	var onboardResp OnboardUserResponse
-	if err := json.Unmarshal(respBody, &onboardResp); err != nil {
-		return "", fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	// 如果操作已完成，尝试从响应中提取 project_id
-	if onboardResp.Done {
-		logger.LogInfo(ctx, "onboardUser 操作完成")
-		if onboardResp.Response != nil && onboardResp.Response.CloudAICompanionProject != nil {
-			switch v := onboardResp.Response.CloudAICompanionProject.(type) {
-			case string:
-				return v, nil
-			case map[string]interface{}:
-				if id, ok := v["id"].(string); ok {
-					return id, nil
-				}
-			}
-		}
-	}
-
-	// 如果操作未完成或没有返回 project_id，等待后轮询 loadCodeAssist
+	// 像 demo 一样：每次轮询都调用 onboardUser，直到返回 done: true
 	maxAttempts := 5
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		logger.LogInfo(ctx, fmt.Sprintf("等待 onboard 完成，轮询 loadCodeAssist %d/%d...", attempt, maxAttempts))
-		time.Sleep(2 * time.Second)
+		logger.LogInfo(ctx, fmt.Sprintf("调用 onboardUser %d/%d...", attempt, maxAttempts))
 
-		projectID, err := loadCodeAssist(ctx, accessToken, proxyURL)
-		if err == nil && projectID != "" {
-			return projectID, nil
+		req, err := http.NewRequest("POST", requestURL, bytes.NewReader(bodyBytes))
+		if err != nil {
+			return "", fmt.Errorf("failed to create request: %w", err)
 		}
+
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("User-Agent", "GeminiCLI/0.1.5 (Windows; AMD64)")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return "", fmt.Errorf("failed to send request: %w", err)
+		}
+
+		respBody, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return "", fmt.Errorf("failed to read response: %w", err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
+		}
+
+		var onboardResp OnboardUserResponse
+		if err := json.Unmarshal(respBody, &onboardResp); err != nil {
+			return "", fmt.Errorf("failed to parse response: %w", err)
+		}
+
+		// 检查操作是否完成
+		if onboardResp.Done {
+			logger.LogInfo(ctx, "onboardUser 操作完成")
+			if onboardResp.Response != nil && onboardResp.Response.CloudAICompanionProject != nil {
+				switch v := onboardResp.Response.CloudAICompanionProject.(type) {
+				case string:
+					return v, nil
+				case map[string]interface{}:
+					if id, ok := v["id"].(string); ok {
+						return id, nil
+					}
+				}
+			}
+			// 操作完成但没有返回 project_id
+			logger.LogInfo(ctx, "onboardUser 完成但未返回 project_id")
+			return "", nil
+		}
+
+		// 操作未完成，等待 2 秒后重试
+		logger.LogInfo(ctx, "onboardUser 操作进行中，等待 2 秒...")
+		time.Sleep(2 * time.Second)
 	}
 
 	return "", fmt.Errorf("onboardUser timeout after %d attempts", maxAttempts)

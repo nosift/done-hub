@@ -565,6 +565,24 @@ const typeConfig = {
       key: '请输入 access_token（sk-ant-sid01-xxx）或完整的 OAuth2 凭证 JSON，也可点击下方"OAuth 授权"按钮自动获取',
       other: ''
     }
+  },
+  59: {
+    inputLabel: {
+      other: ''
+    },
+    prompt: {
+      key: '请输入完整的 OAuth2 凭证 JSON，或点击下方"OAuth 授权"按钮自动获取',
+      other: ''
+    }
+  },
+  60: {
+    inputLabel: {
+      other: 'Project ID（可选）'
+    },
+    prompt: {
+      key: '请输入完整的 OAuth2 凭证 JSON，或点击下方"OAuth 授权"按钮自动获取',
+      other: '可选，留空将自动检测或随机生成。例如：my-project-123'
+    }
   }
 }
 

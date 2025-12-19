@@ -1,4 +1,4 @@
-package geminicli
+package antigravity
 
 import (
 	"context"
@@ -13,6 +13,23 @@ import (
 	"done-hub/common/logger"
 	"done-hub/providers/gemini"
 )
+
+// OAuth2 配置常量
+const (
+	AntigravityClientID     = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+	AntigravityClientSecret = "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"
+	AntigravityUserAgent    = "antigravity/1.11.3 windows/amd64"
+	TokenEndpoint           = "https://oauth2.googleapis.com/token"
+)
+
+// AntigravityScopes OAuth2 授权范围
+var AntigravityScopes = []string{
+	"https://www.googleapis.com/auth/cloud-platform",
+	"https://www.googleapis.com/auth/userinfo.email",
+	"https://www.googleapis.com/auth/userinfo.profile",
+	"https://www.googleapis.com/auth/cclog",
+	"https://www.googleapis.com/auth/experimentsandconfigs",
+}
 
 // OAuth2Credentials OAuth2 用户凭证结构
 type OAuth2Credentials struct {
@@ -57,15 +74,15 @@ func (c *OAuth2Credentials) Refresh(ctx context.Context, proxyURL string, maxRet
 		return fmt.Errorf("refresh token is empty")
 	}
 
-	// 使用默认的 client_id 和 client_secret（如果未提供）
+	// 使用 Antigravity 专用的 client_id 和 client_secret
 	clientID := c.ClientID
 	if clientID == "" {
-		clientID = DefaultClientID
+		clientID = AntigravityClientID
 	}
 
 	clientSecret := c.ClientSecret
 	if clientSecret == "" {
-		clientSecret = DefaultClientSecret
+		clientSecret = AntigravityClientSecret
 	}
 
 	// 准备请求数据
@@ -83,11 +100,7 @@ func (c *OAuth2Credentials) Refresh(ctx context.Context, proxyURL string, maxRet
 			if backoff > 30*time.Second {
 				backoff = 30 * time.Second
 			}
-			if ctx != nil {
-				logger.LogError(ctx, fmt.Sprintf("[GeminiCli] Token refresh retry %d/%d after %v", attempt, maxRetries, backoff))
-			} else {
-				logger.SysLog(fmt.Sprintf("[GeminiCli] Token refresh retry %d/%d after %v", attempt, maxRetries, backoff))
-			}
+			logger.LogInfo(ctx, fmt.Sprintf("[Antigravity] Token refresh retry %d/%d after %v", attempt, maxRetries, backoff))
 			time.Sleep(backoff)
 		}
 
@@ -165,11 +178,7 @@ func (c *OAuth2Credentials) Refresh(ctx context.Context, proxyURL string, maxRet
 			c.ExpiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
 		}
 
-		if ctx != nil {
-			logger.LogInfo(ctx, fmt.Sprintf("[GeminiCli] Token refreshed successfully, expires at: %s", c.ExpiresAt.Format(time.RFC3339)))
-		} else {
-			logger.SysLog(fmt.Sprintf("[GeminiCli] Token refreshed successfully, expires at: %s", c.ExpiresAt.Format(time.RFC3339)))
-		}
+		logger.LogInfo(ctx, fmt.Sprintf("[Antigravity] Token refreshed successfully, expires at: %s", c.ExpiresAt.Format(time.RFC3339)))
 		return nil
 	}
 
@@ -257,14 +266,59 @@ func FromJSON(jsonStr string) (*OAuth2Credentials, error) {
 	return creds, nil
 }
 
-// GeminiCliRequest 内部API请求格式
-type GeminiCliRequest struct {
-	Model   string                    `json:"model"`
-	Project string                    `json:"project"`
-	Request *gemini.GeminiChatRequest `json:"request"`
+// AntigravityRequest Antigravity API 请求格式
+type AntigravityRequest struct {
+	Project   string                    `json:"project"`
+	RequestID string                    `json:"requestId"`
+	Model     string                    `json:"model"`
+	UserAgent string                    `json:"userAgent"`
+	Request   *gemini.GeminiChatRequest `json:"request"`
 }
 
-// GeminiCliResponse 内部API响应格式（包装了实际的响应）
-type GeminiCliResponse struct {
+// AntigravityResponse Antigravity API 响应格式（包装了实际的响应）
+type AntigravityResponse struct {
 	Response *gemini.GeminiChatResponse `json:"response"`
+}
+
+// LoadCodeAssistMetadata loadCodeAssist 请求元数据
+type LoadCodeAssistMetadata struct {
+	IDEType    string `json:"ideType"`
+	Platform   string `json:"platform"`
+	PluginType string `json:"pluginType"`
+}
+
+// LoadCodeAssistRequest loadCodeAssist 请求结构
+type LoadCodeAssistRequest struct {
+	Metadata LoadCodeAssistMetadata `json:"metadata"`
+}
+
+// LoadCodeAssistResponse loadCodeAssist 响应结构
+type LoadCodeAssistResponse struct {
+	CurrentTier             string        `json:"currentTier,omitempty"`
+	CloudAICompanionProject string        `json:"cloudaicompanionProject,omitempty"`
+	AllowedTiers            []AllowedTier `json:"allowedTiers,omitempty"`
+}
+
+// AllowedTier 允许的 tier 信息
+type AllowedTier struct {
+	ID        string `json:"id"`
+	IsDefault bool   `json:"isDefault,omitempty"`
+}
+
+// OnboardUserRequest onboardUser 请求结构
+type OnboardUserRequest struct {
+	TierID   string                 `json:"tierId"`
+	Metadata LoadCodeAssistMetadata `json:"metadata"`
+}
+
+// OnboardUserResponse onboardUser 响应结构 (长时间运行操作)
+type OnboardUserResponse struct {
+	Done     bool                   `json:"done"`
+	Response *OnboardUserResultData `json:"response,omitempty"`
+	Name     string                 `json:"name,omitempty"`
+}
+
+// OnboardUserResultData onboardUser 结果数据
+type OnboardUserResultData struct {
+	CloudAICompanionProject interface{} `json:"cloudaicompanionProject,omitempty"`
 }

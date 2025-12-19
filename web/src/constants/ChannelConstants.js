@@ -292,6 +292,13 @@ export const CHANNEL_OPTIONS = {
     color: 'primary',
     url: 'https://chatgpt.com/'
   },
+  60: {
+    key: 60,
+    text: 'Antigravity',
+    value: 60,
+    color: 'orange',
+    url: 'https://aistudio.google.com/'
+  },
   8: {
     key: 8,
     text: '自定义渠道',

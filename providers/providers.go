@@ -4,6 +4,7 @@ import (
 	"done-hub/common/config"
 	"done-hub/model"
 	"done-hub/providers/ali"
+	"done-hub/providers/antigravity"
 	"done-hub/providers/azure"
 	azurespeech "done-hub/providers/azureSpeech"
 	"done-hub/providers/azure_v1"
@@ -99,6 +100,7 @@ func init() {
 		config.ChannelTypeGeminiCli:       geminicli.GeminiCliProviderFactory{},
 		config.ChannelTypeClaudeCode:      claudecode.ClaudeCodeProviderFactory{},
 		config.ChannelTypeCodex:           codex.CodexProviderFactory{},
+		config.ChannelTypeAntigravity:     antigravity.AntigravityProviderFactory{},
 	}
 }
 
