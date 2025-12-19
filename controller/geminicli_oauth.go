@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"bytes"
+	"context"
 	"crypto/rand"
 	"done-hub/common"
 	"done-hub/common/cache"
@@ -235,44 +237,57 @@ func GeminiCliOAuthCallback(c *gin.Context) {
 
 	// 如果没有提供项目 ID，尝试自动检测（使用会话中保存的代理配置）
 	if projectID == "" {
-		logger.SysLog("Project ID 未提供，尝试自动检测...")
-		projects, err := getUserProjects(tokenResp.AccessToken, stateData.Proxy)
+		ctx := c.Request.Context()
+		logger.LogInfo(ctx, "Project ID 未提供，尝试自动检测...")
+
+		// 优先使用 Code Assist API 获取 project_id（可以自动激活未激活的用户）
+		var err error
+		projectID, err = fetchProjectIDFromCodeAssist(ctx, tokenResp.AccessToken, stateData.Proxy)
 		if err != nil {
-			logger.SysError(fmt.Sprintf("Failed to get user projects: %s", err.Error()))
+			logger.LogInfo(ctx, fmt.Sprintf("Code Assist API 获取 project_id 失败: %s，回退到 Resource Manager API...", err.Error()))
 
-			// 保存错误结果到缓存
-			resultCacheKey := OAuthResultCachePrefix + state
-			resultData := OAuthResultData{
-				Success:     false,
-				Message:     fmt.Sprintf("自动检测项目 ID 失败: %s。请手动填写 Project ID 后重新授权", err.Error()),
-				CompletedAt: time.Now().Unix(),
+			// 回退到原有的 Cloud Resource Manager API 方式
+			projects, err := getUserProjects(tokenResp.AccessToken, stateData.Proxy)
+			if err != nil {
+				logger.LogError(ctx, fmt.Sprintf("Failed to get user projects: %s", err.Error()))
+
+				// 保存错误结果到缓存
+				resultCacheKey := OAuthResultCachePrefix + state
+				resultData := OAuthResultData{
+					Success:     false,
+					Message:     fmt.Sprintf("自动检测项目 ID 失败: %s。请手动填写 Project ID 后重新授权", err.Error()),
+					CompletedAt: time.Now().Unix(),
+				}
+				cache.SetCache(resultCacheKey, resultData, OAuthResultCacheDuration)
+
+				renderOAuthResult(c, false, fmt.Sprintf("自动检测项目 ID 失败: %s。请手动填写 Project ID 后重新授权", err.Error()), "", "", state)
+				return
 			}
-			cache.SetCache(resultCacheKey, resultData, OAuthResultCacheDuration)
 
-			renderOAuthResult(c, false, fmt.Sprintf("自动检测项目 ID 失败: %s。请手动填写 Project ID 后重新授权", err.Error()), "", "", state)
-			return
+			if len(projects) == 0 {
+				logger.LogError(ctx, "No accessible projects found")
+
+				// 保存错误结果到缓存
+				resultCacheKey := OAuthResultCachePrefix + state
+				resultData := OAuthResultData{
+					Success:     false,
+					Message:     "未检测到可访问的项目，请检查权限或手动填写 Project ID 后重新授权",
+					CompletedAt: time.Now().Unix(),
+				}
+				cache.SetCache(resultCacheKey, resultData, OAuthResultCacheDuration)
+
+				renderOAuthResult(c, false, "未检测到可访问的项目，请检查权限或手动填写 Project ID 后重新授权", "", "", state)
+				return
+			}
+
+			// 选择默认项目
+			projectID = selectDefaultProject(projects)
+			logger.LogInfo(ctx, fmt.Sprintf("通过 Resource Manager API 自动检测到项目 ID: %s (共 %d 个可用项目)", projectID, len(projects)))
+		} else {
+			logger.LogInfo(ctx, fmt.Sprintf("通过 Code Assist API 自动检测到项目 ID: %s", projectID))
 		}
 
-		if len(projects) == 0 {
-			logger.SysError("No accessible projects found")
-
-			// 保存错误结果到缓存
-			resultCacheKey := OAuthResultCachePrefix + state
-			resultData := OAuthResultData{
-				Success:     false,
-				Message:     "未检测到可访问的项目，请检查权限或手动填写 Project ID 后重新授权",
-				CompletedAt: time.Now().Unix(),
-			}
-			cache.SetCache(resultCacheKey, resultData, OAuthResultCacheDuration)
-
-			renderOAuthResult(c, false, "未检测到可访问的项目，请检查权限或手动填写 Project ID 后重新授权", "", "", state)
-			return
-		}
-
-		// 选择默认项目
-		projectID = selectDefaultProject(projects)
 		autoDetected = true
-		logger.SysLog(fmt.Sprintf("自动检测到项目 ID: %s (共 %d 个可用项目)", projectID, len(projects)))
 	}
 
 	// 构建完整的凭证
@@ -683,6 +698,52 @@ type GoogleCloudProject struct {
 	LifecycleState string `json:"lifecycleState"`
 }
 
+// LoadCodeAssistRequest loadCodeAssist 请求结构
+type LoadCodeAssistRequest struct {
+	Metadata LoadCodeAssistMetadata `json:"metadata"`
+}
+
+// LoadCodeAssistMetadata loadCodeAssist 元数据
+type LoadCodeAssistMetadata struct {
+	IDEType    string `json:"ideType"`
+	Platform   string `json:"platform"`
+	PluginType string `json:"pluginType"`
+}
+
+// LoadCodeAssistResponse loadCodeAssist 响应结构
+type LoadCodeAssistResponse struct {
+	CurrentTier             string        `json:"currentTier,omitempty"`
+	CloudAICompanionProject string        `json:"cloudaicompanionProject,omitempty"`
+	AllowedTiers            []AllowedTier `json:"allowedTiers,omitempty"`
+}
+
+// AllowedTier 允许的 tier 信息
+type AllowedTier struct {
+	ID        string `json:"id"`
+	IsDefault bool   `json:"isDefault,omitempty"`
+}
+
+// OnboardUserRequest onboardUser 请求结构
+type OnboardUserRequest struct {
+	TierID   string                 `json:"tierId"`
+	Metadata LoadCodeAssistMetadata `json:"metadata"`
+}
+
+// OnboardUserResponse onboardUser 响应结构 (长时间运行操作)
+type OnboardUserResponse struct {
+	Done     bool                   `json:"done"`
+	Response *OnboardUserResultData `json:"response,omitempty"`
+	Name     string                 `json:"name,omitempty"`
+}
+
+// OnboardUserResultData onboardUser 结果数据
+type OnboardUserResultData struct {
+	CloudAICompanionProject interface{} `json:"cloudaicompanionProject,omitempty"`
+}
+
+// CodeAssistEndpoint GeminiCli 内部 API 端点
+const CodeAssistEndpoint = "https://cloudcode-pa.googleapis.com"
+
 // GoogleCloudProjectsResponse Google Cloud 项目列表响应
 type GoogleCloudProjectsResponse struct {
 	Projects []GoogleCloudProject `json:"projects"`
@@ -764,4 +825,219 @@ func selectDefaultProject(projects []GoogleCloudProject) string {
 	firstProject := projects[0]
 	logger.SysLog(fmt.Sprintf("选择第一个项目作为默认: %s (%s)", firstProject.ProjectID, firstProject.DisplayName))
 	return firstProject.ProjectID
+}
+
+// fetchProjectIDFromCodeAssist 通过 Code Assist API 获取 project_id
+// 优先使用 loadCodeAssist，如果用户未激活则使用 onboardUser 激活
+func fetchProjectIDFromCodeAssist(ctx context.Context, accessToken, proxyURL string) (string, error) {
+	logger.LogInfo(ctx, "尝试通过 Code Assist API 获取 project_id...")
+
+	// 步骤1: 尝试 loadCodeAssist
+	projectID, err := loadCodeAssist(ctx, accessToken, proxyURL)
+	if err == nil && projectID != "" {
+		logger.LogInfo(ctx, fmt.Sprintf("loadCodeAssist 成功获取 project_id: %s", projectID))
+		return projectID, nil
+	}
+
+	if err != nil {
+		logger.LogInfo(ctx, fmt.Sprintf("loadCodeAssist 失败: %s，尝试 onboardUser...", err.Error()))
+	} else {
+		logger.LogInfo(ctx, "loadCodeAssist 未返回 project_id（用户可能未激活），尝试 onboardUser...")
+	}
+
+	// 步骤2: 回退到 onboardUser
+	projectID, err = onboardUser(ctx, accessToken, proxyURL)
+	if err != nil {
+		return "", fmt.Errorf("onboardUser failed: %w", err)
+	}
+
+	if projectID == "" {
+		return "", fmt.Errorf("onboardUser completed but no project_id returned")
+	}
+
+	logger.LogInfo(ctx, fmt.Sprintf("onboardUser 成功获取 project_id: %s", projectID))
+	return projectID, nil
+}
+
+// callLoadCodeAssistAPI 调用 loadCodeAssist API 并返回完整响应
+func callLoadCodeAssistAPI(accessToken, proxyURL string) (*LoadCodeAssistResponse, error) {
+	requestURL := CodeAssistEndpoint + "/v1internal:loadCodeAssist"
+
+	reqBody := LoadCodeAssistRequest{
+		Metadata: LoadCodeAssistMetadata{
+			IDEType:    "ANTIGRAVITY",
+			Platform:   "PLATFORM_UNSPECIFIED",
+			PluginType: "GEMINI",
+		},
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", requestURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "GeminiCLI/0.1.5 (Windows; AMD64)")
+
+	client := createHTTPClient(proxyURL, 30*time.Second)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var loadResp LoadCodeAssistResponse
+	if err := json.Unmarshal(respBody, &loadResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return &loadResp, nil
+}
+
+// loadCodeAssist 调用 loadCodeAssist API 检查用户是否已激活
+func loadCodeAssist(ctx context.Context, accessToken, proxyURL string) (string, error) {
+	loadResp, err := callLoadCodeAssistAPI(accessToken, proxyURL)
+	if err != nil {
+		return "", err
+	}
+
+	// 检查用户是否已激活（有 currentTier）
+	if loadResp.CurrentTier != "" {
+		logger.LogInfo(ctx, fmt.Sprintf("用户已激活，tier: %s", loadResp.CurrentTier))
+		return loadResp.CloudAICompanionProject, nil
+	}
+
+	// 用户未激活
+	logger.LogInfo(ctx, "用户未激活（无 currentTier）")
+	return "", nil
+}
+
+// onboardUser 调用 onboardUser API 激活用户
+func onboardUser(ctx context.Context, accessToken, proxyURL string) (string, error) {
+	// 首先获取用户的 tier（复用 callLoadCodeAssistAPI）
+	loadResp, err := callLoadCodeAssistAPI(accessToken, proxyURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to get tier: %w", err)
+	}
+
+	// 查找默认的 tier
+	tierID := "LEGACY" // 默认值
+	for _, tier := range loadResp.AllowedTiers {
+		if tier.IsDefault {
+			tierID = tier.ID
+			logger.LogInfo(ctx, fmt.Sprintf("找到默认 tier: %s", tierID))
+			break
+		}
+	}
+
+	logger.LogInfo(ctx, fmt.Sprintf("用户 tier: %s，开始激活...", tierID))
+
+	requestURL := CodeAssistEndpoint + "/v1internal:onboardUser"
+
+	reqBody := OnboardUserRequest{
+		TierID: tierID,
+		Metadata: LoadCodeAssistMetadata{
+			IDEType:    "ANTIGRAVITY",
+			Platform:   "PLATFORM_UNSPECIFIED",
+			PluginType: "GEMINI",
+		},
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	client := createHTTPClient(proxyURL, 30*time.Second)
+
+	// 只发送一次 onboardUser 请求
+	req, err := http.NewRequest("POST", requestURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "GeminiCLI/0.1.5 (Windows; AMD64)")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to send request: %w", err)
+	}
+
+	respBody, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var onboardResp OnboardUserResponse
+	if err := json.Unmarshal(respBody, &onboardResp); err != nil {
+		return "", fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	// 如果操作已完成，尝试从响应中提取 project_id
+	if onboardResp.Done {
+		logger.LogInfo(ctx, "onboardUser 操作完成")
+		if onboardResp.Response != nil && onboardResp.Response.CloudAICompanionProject != nil {
+			switch v := onboardResp.Response.CloudAICompanionProject.(type) {
+			case string:
+				return v, nil
+			case map[string]interface{}:
+				if id, ok := v["id"].(string); ok {
+					return id, nil
+				}
+			}
+		}
+	}
+
+	// 如果操作未完成或没有返回 project_id，等待后轮询 loadCodeAssist
+	maxAttempts := 5
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		logger.LogInfo(ctx, fmt.Sprintf("等待 onboard 完成，轮询 loadCodeAssist %d/%d...", attempt, maxAttempts))
+		time.Sleep(2 * time.Second)
+
+		projectID, err := loadCodeAssist(ctx, accessToken, proxyURL)
+		if err == nil && projectID != "" {
+			return projectID, nil
+		}
+	}
+
+	return "", fmt.Errorf("onboardUser timeout after %d attempts", maxAttempts)
+}
+
+// createHTTPClient 创建 HTTP 客户端（支持代理）
+func createHTTPClient(proxyURL string, timeout time.Duration) *http.Client {
+	client := &http.Client{Timeout: timeout}
+
+	if proxyURL != "" {
+		proxyURLParsed, err := url.Parse(proxyURL)
+		if err == nil {
+			client.Transport = &http.Transport{
+				Proxy: http.ProxyURL(proxyURLParsed),
+			}
+		}
+	}
+
+	return client
 }
