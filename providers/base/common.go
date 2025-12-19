@@ -1,6 +1,7 @@
 package base
 
 import (
+	"context"
 	"done-hub/common"
 	"done-hub/common/config"
 	"done-hub/common/requester"
@@ -128,9 +129,10 @@ func (p *BaseProvider) SetUsage(usage *types.Usage) {
 
 func (p *BaseProvider) SetContext(c *gin.Context) {
 	p.Context = c
-	// 同时更新 Requester 的 Context，以便在发送请求时能够传递 Request ID 等信息
+	// 使用 WithoutCancel 创建一个不受客户端断开影响的 context
+	// 这样即使客户端断开，上游请求也会继续完成，确保计费和日志正常记录
 	if c != nil && p.Requester != nil {
-		p.Requester.Context = c.Request.Context()
+		p.Requester.Context = context.WithoutCancel(c.Request.Context())
 	}
 }
 

@@ -7,7 +7,6 @@ import (
 	"done-hub/types"
 	"fmt"
 	"io"
-	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -43,15 +42,6 @@ func ErrorWrapper(err error, code string, statusCode int) *types.OpenAIErrorWith
 	errString := "error"
 	if err != nil {
 		errString = err.Error()
-	}
-
-	// 特殊处理 context canceled 和 context deadline exceeded 错误
-	// 这些错误通常是由于客户端断开连接或超时导致的，不应该重试
-	if strings.Contains(errString, "context canceled") || strings.Contains(errString, "context deadline exceeded") {
-		logger.SysError(fmt.Sprintf("client context error: %s", errString))
-		openaiErr := StringErrorWrapper("客户端请求已取消", "client_disconnected", http.StatusBadRequest)
-		openaiErr.LocalError = true // 标记为本地错误，阻止重试
-		return openaiErr
 	}
 
 	if strings.Contains(errString, "Post") || strings.Contains(errString, "dial") {
