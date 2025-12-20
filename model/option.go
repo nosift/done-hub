@@ -36,6 +36,7 @@ func InitOptionMap() {
 	config.GlobalOption.RegisterBool("LinuxDoOAuthEnabled", &config.LinuxDoOAuthEnabled)
 	config.GlobalOption.RegisterBool("InviteCodeRegisterEnabled", &config.InviteCodeRegisterEnabled)
 	config.GlobalOption.RegisterBool("LinuxDoOAuthTrustLevelEnabled", &config.LinuxDoOAuthTrustLevelEnabled)
+	config.GlobalOption.RegisterBool("LinuxDoOAuthDynamicTrustLevel", &config.LinuxDoOAuthDynamicTrustLevel)
 	config.GlobalOption.RegisterBool("TurnstileCheckEnabled", &config.TurnstileCheckEnabled)
 	config.GlobalOption.RegisterBool("RegisterEnabled", &config.RegisterEnabled)
 	config.GlobalOption.RegisterBool("AutomaticDisableChannelEnabled", &config.AutomaticDisableChannelEnabled)

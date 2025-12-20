@@ -142,9 +142,11 @@ const Dashboard = () => {
           <Grid item lg={4} xs={12}>
             {/* 用户信息 */}
             <ModelUsagePieChart isLoading={isLoading} data={modelUsageData}/>
-            <Box mt={2}>
-              <QuickStartCard/>
-            </Box>
+            {siteInfo.builtin_chat_enabled !== false && (
+              <Box mt={2}>
+                <QuickStartCard/>
+              </Box>
+            )}
             {/* 邀请 */}
             <Box mt={2}>
               <InviteCard/>

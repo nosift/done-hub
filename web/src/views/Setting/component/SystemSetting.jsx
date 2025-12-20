@@ -15,7 +15,8 @@ import {
   InputLabel,
   OutlinedInput,
   Stack,
-  TextField
+  TextField,
+  Typography
 } from '@mui/material'
 import Grid from '@mui/material/Unstable_Grid2'
 import { removeTrailingSlash, showError, showSuccess } from 'utils/common' //,
@@ -64,6 +65,7 @@ const SystemSetting = () => {
     RegisterEnabled: '',
     LinuxDoOAuthEnabled: '',
     LinuxDoOAuthTrustLevelEnabled: '',
+    LinuxDoOAuthDynamicTrustLevel: '',
     LinuxDoClientId: '',
     LinuxDoClientSecret: '',
     LinuxDoOAuthLowestTrustLevel: '',
@@ -117,6 +119,7 @@ const SystemSetting = () => {
       case 'OIDCAuthEnabled':
       case 'LinuxDoOAuthEnabled':
       case 'LinuxDoOAuthTrustLevelEnabled':
+      case 'LinuxDoOAuthDynamicTrustLevel':
       case 'TurnstileCheckEnabled':
       case 'EmailDomainRestrictionEnabled':
       case 'RegisterEnabled':
@@ -373,6 +376,43 @@ const SystemSetting = () => {
 
         <SubCard title={t('setting_index.systemSettings.configureLoginRegister.title')}>
           <Grid container spacing={{ xs: 3, sm: 2, md: 4 }}>
+            {/* 通用设置 */}
+            <Grid xs={12}>
+              <Typography variant="subtitle1" color="textSecondary" sx={{ mb: 1 }}>
+                {t('setting_index.systemSettings.configureLoginRegister.generalSettings')}
+              </Typography>
+            </Grid>
+            <Grid xs={12} md={3}>
+              <FormControlLabel
+                label={t('setting_index.systemSettings.configureLoginRegister.registerEnabled')}
+                control={<Checkbox checked={inputs.RegisterEnabled === 'true'} onChange={handleInputChange}
+                                   name="RegisterEnabled"/>}
+              />
+            </Grid>
+            <Grid xs={12} md={3}>
+              <FormControlLabel
+                label="启用邀请码注册"
+                control={<Checkbox checked={inputs.InviteCodeRegisterEnabled === 'true'} onChange={handleInputChange}
+                                   name="InviteCodeRegisterEnabled"/>}
+              />
+            </Grid>
+            <Grid xs={12} md={3}>
+              <FormControlLabel
+                label={t('setting_index.systemSettings.configureLoginRegister.turnstileCheck')}
+                control={
+                  <Checkbox checked={inputs.TurnstileCheckEnabled === 'true'} onChange={handleInputChange}
+                            name="TurnstileCheckEnabled"/>
+                }
+              />
+            </Grid>
+
+            {/* 密码登录 */}
+            <Grid xs={12}>
+              <Divider sx={{ my: 1 }} />
+              <Typography variant="subtitle1" color="textSecondary" sx={{ mb: 1, mt: 2 }}>
+                {t('setting_index.systemSettings.configureLoginRegister.passwordSettings')}
+              </Typography>
+            </Grid>
             <Grid xs={12} md={3}>
               <FormControlLabel
                 label={t('setting_index.systemSettings.configureLoginRegister.passwordLogin')}
@@ -406,11 +446,31 @@ const SystemSetting = () => {
                 }
               />
             </Grid>
+
+            {/* 第三方登录 */}
+            <Grid xs={12}>
+              <Divider sx={{ my: 1 }} />
+              <Typography variant="subtitle1" color="textSecondary" sx={{ mb: 1, mt: 2 }}>
+                {t('setting_index.systemSettings.configureLoginRegister.thirdPartyLogin')}
+              </Typography>
+            </Grid>
             <Grid xs={12} md={3}>
               <FormControlLabel
                 label={t('setting_index.systemSettings.configureLoginRegister.gitHubOAuth')}
                 control={<Checkbox checked={inputs.GitHubOAuthEnabled === 'true'} onChange={handleInputChange}
                                    name="GitHubOAuthEnabled"/>}
+              />
+            </Grid>
+            <Grid xs={12} md={3}>
+              <FormControlLabel
+                label={t('setting_index.systemSettings.configureLoginRegister.gitHubOldIdClose')}
+                control={
+                  <Checkbox
+                    checked={inputs.GitHubOldIdCloseEnabled === 'true'}
+                    onChange={handleInputChange}
+                    name="GitHubOldIdCloseEnabled"
+                  />
+                }
               />
             </Grid>
             <Grid xs={12} md={3}>
@@ -450,38 +510,9 @@ const SystemSetting = () => {
             </Grid>
             <Grid xs={12} md={3}>
               <FormControlLabel
-                label={t('setting_index.systemSettings.configureLoginRegister.registerEnabled')}
-                control={<Checkbox checked={inputs.RegisterEnabled === 'true'} onChange={handleInputChange}
-                                   name="RegisterEnabled"/>}
-              />
-            </Grid>
-            <Grid xs={12} md={3}>
-              <FormControlLabel
-                label="启用邀请码注册"
-                control={<Checkbox checked={inputs.InviteCodeRegisterEnabled === 'true'} onChange={handleInputChange}
-                                   name="InviteCodeRegisterEnabled"/>}
-              />
-            </Grid>
-            <Grid xs={12} md={3}>
-              <FormControlLabel
-                label={t('setting_index.systemSettings.configureLoginRegister.turnstileCheck')}
-                control={
-                  <Checkbox checked={inputs.TurnstileCheckEnabled === 'true'} onChange={handleInputChange}
-                            name="TurnstileCheckEnabled"/>
-                }
-              />
-            </Grid>
-
-            <Grid xs={12} md={3}>
-              <FormControlLabel
-                label={t('setting_index.systemSettings.configureLoginRegister.gitHubOldIdClose')}
-                control={
-                  <Checkbox
-                    checked={inputs.GitHubOldIdCloseEnabled === 'true'}
-                    onChange={handleInputChange}
-                    name="GitHubOldIdCloseEnabled"
-                  />
-                }
+                label={t('setting_index.systemSettings.configureLoginRegister.linuxDoOAuthDynamicTrustLevel')}
+                control={<Checkbox checked={inputs.LinuxDoOAuthDynamicTrustLevel === 'true'}
+                                   onChange={handleInputChange} name="LinuxDoOAuthDynamicTrustLevel"/>}
               />
             </Grid>
           </Grid>

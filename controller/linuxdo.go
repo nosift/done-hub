@@ -222,24 +222,30 @@ func LinuxDoOAuth(c *gin.Context) {
 		return
 	}
 
-	if config.LinuxDoOAuthTrustLevelEnabled {
-		if linuxDoUser.TrustLevel < config.LinuxDoOAuthLowestTrustLevel {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "该 LINUX DO 信任等级过低，不允许访问",
-			})
-			return
-		}
-	}
-
 	user := model.User{
 		LinuxDoId:         linuxDoUser.Id,
 		LinuxDoUsername:   linuxDoUser.Username,
 		LinuxDoTrustLevel: linuxDoUser.TrustLevel,
 	}
 
+	// 判断是否为已注册用户
+	isExistingUser := model.IsLinuxDOIdAlreadyTaken(user.LinuxDoId)
+
+	// 信任等级检查：动态限制开启或新用户注册时检查
+	if config.LinuxDoOAuthTrustLevelEnabled {
+		if config.LinuxDoOAuthDynamicTrustLevel || !isExistingUser {
+			if linuxDoUser.TrustLevel < config.LinuxDoOAuthLowestTrustLevel {
+				c.JSON(http.StatusOK, gin.H{
+					"success": false,
+					"message": "该 LINUX DO 信任等级过低，不允许访问",
+				})
+				return
+			}
+		}
+	}
+
 	// Check if user exists
-	if model.IsLinuxDOIdAlreadyTaken(user.LinuxDoId) {
+	if isExistingUser {
 		err := user.FillUserByLinuxDOId()
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{

@@ -84,6 +84,14 @@ func UpdateOption(c *gin.Context) {
 			})
 			return
 		}
+	case "LinuxDoOAuthDynamicTrustLevel":
+		if option.Value == "true" && config.LinuxDoOAuthTrustLevelEnabled == false {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "无法启用动态信任等级限制，请先启用 LINUX DO 信任等级限制！",
+			})
+			return
+		}
 	case "LinuxDoOAuthLowestTrustLevel":
 		lowestTrustLevel, err := strconv.Atoi(option.Value)
 		if err != nil {
