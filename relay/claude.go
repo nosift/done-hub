@@ -8,6 +8,7 @@ import (
 	"done-hub/common/model_utils"
 	"done-hub/common/requester"
 	"done-hub/common/utils"
+	"done-hub/providers/antigravity"
 	"done-hub/providers/claude"
 	"done-hub/providers/gemini"
 	"done-hub/providers/openai"
@@ -25,7 +26,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var AllowChannelType = []int{config.ChannelTypeAnthropic, config.ChannelTypeVertexAI, config.ChannelTypeBedrock, config.ChannelTypeCustom, config.ChannelTypeGemini, config.ChannelTypeGeminiCli, config.ChannelTypeClaudeCode, config.ChannelTypeCodex}
+var AllowChannelType = []int{config.ChannelTypeAnthropic, config.ChannelTypeVertexAI, config.ChannelTypeBedrock, config.ChannelTypeCustom, config.ChannelTypeGemini, config.ChannelTypeGeminiCli, config.ChannelTypeClaudeCode, config.ChannelTypeCodex, config.ChannelTypeAntigravity}
 
 type relayClaudeOnly struct {
 	relayBase
@@ -90,6 +91,11 @@ func (r *relayClaudeOnly) send() (err *types.OpenAIErrorWithStatusCode, done boo
 	// 检查是否为 Gemini 渠道，如果是则使用 Gemini->Claude 转换逻辑
 	if channelType == config.ChannelTypeGemini {
 		return r.sendGeminiWithClaudeFormat()
+	}
+
+	// 检查是否为 Antigravity 渠道，如果是则使用 Antigravity->Claude 转换逻辑
+	if channelType == config.ChannelTypeAntigravity {
+		return r.sendAntigravityWithClaudeFormat()
 	}
 
 	chatProvider, ok := r.provider.(claude.ClaudeChatInterface)
@@ -1659,4 +1665,89 @@ func (r *relayClaudeOnly) sendGeminiWithClaudeFormat() (err *types.OpenAIErrorWi
 	}
 
 	return err, false
+}
+
+// sendAntigravityWithClaudeFormat handles Antigravity channel Claude format requests
+// Claude format -> OpenAI format -> Antigravity API -> OpenAI response -> Claude format
+func (r *relayClaudeOnly) sendAntigravityWithClaudeFormat() (err *types.OpenAIErrorWithStatusCode, done bool) {
+
+	// 将Claude请求转换为OpenAI格式
+	openaiRequest, err := r.convertClaudeToOpenAI()
+	if err != nil {
+		return err, true
+	}
+
+	// 内容审查
+	if safetyErr := r.performContentSafety(); safetyErr != nil {
+		err = safetyErr
+		done = true
+		return
+	}
+
+	openaiRequest.Model = r.modelName
+
+	// 获取 Antigravity provider
+	antigravityProvider, ok := r.provider.(*antigravity.AntigravityProvider)
+	if !ok {
+		err = common.StringErrorWrapperLocal("provider is not Antigravity provider", "channel_error", http.StatusServiceUnavailable)
+		done = true
+		return
+	}
+
+	// Claude 模型特殊处理：检查是否启用思考模式
+	enableThinking := r.isClaudeThinkingEnabled()
+
+	// 如果是 Claude 思考模型，需要删除 topP 参数
+	if enableThinking && model_utils.ContainsCaseInsensitive(r.modelName, "claude") {
+		openaiRequest.TopP = nil // 设置为 nil 表示不使用
+	}
+
+	if r.claudeRequest.Stream {
+		// 处理流式响应
+		var stream requester.StreamReaderInterface[string]
+		stream, err = antigravityProvider.CreateChatCompletionStream(openaiRequest)
+		if err != nil {
+			return err, true
+		}
+
+		if r.heartbeat != nil {
+			r.heartbeat.Stop()
+		}
+
+		// 使用 Transformer 架构处理流式响应
+		transformManager := transformer.CreateClaudeToVertexGeminiManager()
+		firstResponseTime := r.convertOpenAIStreamToClaudeWithTransformer(stream, transformManager)
+		r.SetFirstResponseTime(time.Unix(firstResponseTime, 0))
+	} else {
+		// 处理非流式响应
+		var openaiResponse *types.ChatCompletionResponse
+		openaiResponse, err = antigravityProvider.CreateChatCompletion(openaiRequest)
+		if err != nil {
+			return err, true
+		}
+
+		if r.heartbeat != nil {
+			r.heartbeat.Stop()
+		}
+
+		// 转换OpenAI响应为Claude格式
+		claudeResponse := r.convertOpenAIResponseToClaude(openaiResponse)
+		openErr := responseJsonClient(r.c, claudeResponse)
+
+		if openErr != nil {
+			// 对于响应发送错误（如客户端断开连接），不应该触发重试
+		}
+	}
+
+	return err, false
+}
+
+// isClaudeThinkingEnabled 检查是否启用了 Claude 思考模式
+func (r *relayClaudeOnly) isClaudeThinkingEnabled() bool {
+	if r.claudeRequest == nil || r.claudeRequest.Thinking == nil {
+		return false
+	}
+
+	// 检查 thinking 参数的 type 是否为 "enabled"
+	return r.claudeRequest.Thinking.Type == "enabled"
 }
