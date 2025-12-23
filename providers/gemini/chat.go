@@ -433,13 +433,29 @@ func ConvertFromChatOpenai(request *types.ChatCompletionRequest) (*GeminiChatReq
 		geminiRequest.GenerationConfig.ResponseModalities = []string{"AUDIO"}
 	}
 
-	if request.Reasoning != nil {
-		geminiRequest.GenerationConfig.ThinkingConfig = &ThinkingConfig{
-			ThinkingBudget: &request.Reasoning.MaxTokens,
+	// 检查是否应该启用 thinking（历史消息约束检查）
+	canEnableThinking := shouldEnableThinking(request.Messages)
+
+	if request.Reasoning != nil && canEnableThinking {
+		budget := request.Reasoning.MaxTokens
+		maxTokens := request.MaxTokens
+
+		// 验证 thinkingBudget < maxOutputTokens（与 gcli2api-demo 保持一致）
+		if maxTokens > 0 && budget >= maxTokens {
+			// 自动下调 budget
+			budget = maxTokens - 1
+		}
+
+		// 如果下调后 budget <= 0，则不启用 thinking
+		if budget > 0 {
+			geminiRequest.GenerationConfig.ThinkingConfig = &ThinkingConfig{
+				ThinkingBudget:  &budget,
+				IncludeThoughts: true, // 当有 Reasoning 参数时，启用思考输出
+			}
 		}
 	}
 
-	if config.GeminiSettingsInstance.GetOpenThink(request.Model) {
+	if config.GeminiSettingsInstance.GetOpenThink(request.Model) && canEnableThinking {
 		if geminiRequest.GenerationConfig.ThinkingConfig == nil {
 			geminiRequest.GenerationConfig.ThinkingConfig = &ThinkingConfig{}
 		}
@@ -505,6 +521,7 @@ func ConvertFromChatOpenai(request *types.ChatCompletionRequest) (*GeminiChatReq
 
 	if systemContent != "" {
 		geminiRequest.SystemInstruction = &GeminiChatContent{
+			Role: "user", // 与 gcli2api-demo 保持一致
 			Parts: []GeminiPart{
 				{Text: systemContent},
 			},
@@ -882,4 +899,54 @@ func (p *GeminiProvider) pluginHandle(request *GeminiChatRequest) {
 		CodeExecution: &GeminiCodeExecution{},
 	})
 
+}
+
+// checkLastAssistantFirstBlockType 检查最后一条 assistant 消息的第一个 block 类型
+// 返回值：第一个 block 的类型，如果没有 assistant 消息或没有数组格式的 content 则返回空字符串
+// 注意：只检查数组格式的 content，与 gcli2api-demo 保持一致
+func checkLastAssistantFirstBlockType(messages []types.ChatCompletionMessage) string {
+	// 从后往前遍历，找到最后一条 assistant 消息
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg := messages[i]
+		if msg.Role != types.ChatMessageRoleAssistant {
+			continue
+		}
+
+		// 检查 content 是否为数组格式（与 gcli2api-demo 保持一致）
+		// 如果 content 是字符串，跳过这条消息
+		if _, ok := msg.Content.(string); ok {
+			continue
+		}
+
+		// 解析 content（此时 content 应该是数组格式）
+		parts := msg.ParseContent()
+		if len(parts) == 0 {
+			continue
+		}
+
+		// 返回第一个 block 的类型
+		return parts[0].Type
+	}
+
+	return ""
+}
+
+// shouldEnableThinking 检查是否应该启用 thinking
+// 根据 gcli2api-demo 的逻辑：如果启用 thinking 但历史 assistant 消息不以 thinking/redacted_thinking 开头，
+// 则不应该下发 thinkingConfig（避免下游 400 错误）
+func shouldEnableThinking(messages []types.ChatCompletionMessage) bool {
+	firstBlockType := checkLastAssistantFirstBlockType(messages)
+
+	// 如果没有历史 assistant 消息（firstBlockType 为空），可以启用 thinking
+	if firstBlockType == "" {
+		return true
+	}
+
+	// 如果第一个 block 是 thinking 或 redacted_thinking，可以启用 thinking
+	if firstBlockType == "thinking" || firstBlockType == "redacted_thinking" {
+		return true
+	}
+
+	// 其他情况，不应该启用 thinking
+	return false
 }

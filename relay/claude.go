@@ -359,6 +359,48 @@ func (r *relayClaudeOnly) convertClaudeToOpenAIWithOptions(cleanSchema bool) (*t
 		openaiRequest.Stop = r.claudeRequest.StopSequences
 	}
 
+	// 处理 Thinking 参数 - 将 Claude 的 thinking 转换为 OpenAI 的 Reasoning
+	if r.claudeRequest.Thinking != nil && r.claudeRequest.Thinking.Type == "enabled" {
+		budgetTokens := r.claudeRequest.Thinking.BudgetTokens
+		maxTokens := r.claudeRequest.MaxTokens
+
+		// 安全校验1: 检查 budget >= max_tokens，自动下调
+		if budgetTokens >= maxTokens {
+			adjustedBudget := maxTokens - 1
+			if adjustedBudget <= 0 {
+				// 无法下调到正数，跳过 thinking 配置
+				goto skipThinking
+			}
+			budgetTokens = adjustedBudget
+		}
+
+		// 安全校验2: 检查历史 assistant 消息是否以 thinking 开头
+		if len(r.claudeRequest.Messages) > 0 {
+			// 找到最后一条 assistant 消息
+			for i := len(r.claudeRequest.Messages) - 1; i >= 0; i-- {
+				msg := r.claudeRequest.Messages[i]
+				if msg.Role == "assistant" {
+					// 检查内容是否以 thinking/redacted_thinking 开头
+					if content, ok := msg.Content.([]interface{}); ok && len(content) > 0 {
+						if firstBlock, ok := content[0].(map[string]interface{}); ok {
+							blockType, _ := firstBlock["type"].(string)
+							if blockType != "thinking" && blockType != "redacted_thinking" {
+								// 历史消息不以 thinking 开头，跳过 thinking 配置
+								goto skipThinking
+							}
+						}
+					}
+					break
+				}
+			}
+		}
+
+		openaiRequest.Reasoning = &types.ChatReasoning{
+			MaxTokens: budgetTokens,
+		}
+	}
+skipThinking:
+
 	// 处理系统消息
 	if r.claudeRequest.System != nil {
 
@@ -405,9 +447,10 @@ func (r *relayClaudeOnly) convertClaudeToOpenAIWithOptions(cleanSchema bool) (*t
 		case []interface{}:
 			// 处理复杂内容
 			if msg.Role == "user" {
-				// 用户消息：先处理 tool_result，再处理 text
+				// 用户消息：处理 tool_result, text 和 image
 				toolParts := make([]map[string]interface{}, 0)
 				textParts := make([]map[string]interface{}, 0)
+				imageParts := make([]map[string]interface{}, 0)
 
 				for _, part := range content {
 					if partMap, ok := part.(map[string]interface{}); ok {
@@ -421,6 +464,13 @@ func (r *relayClaudeOnly) convertClaudeToOpenAIWithOptions(cleanSchema bool) (*t
 						case "text":
 							if _, exists := partMap["text"].(string); exists {
 								textParts = append(textParts, partMap)
+							}
+						case "image":
+							// Claude 图片格式: {type: "image", source: {type: "base64", media_type, data}}
+							if source, exists := partMap["source"].(map[string]interface{}); exists {
+								if sourceType, _ := source["type"].(string); sourceType == "base64" {
+									imageParts = append(imageParts, partMap)
+								}
 							}
 						}
 					}
@@ -451,30 +501,52 @@ func (r *relayClaudeOnly) convertClaudeToOpenAIWithOptions(cleanSchema bool) (*t
 					openaiRequest.Messages = append(openaiRequest.Messages, toolResultMsg)
 				}
 
-				// 处理 text 部分 - 用户消息的 textParts 直接作为 content
-				if len(textParts) > 0 {
-					contentParts := make([]types.ChatMessagePart, 0)
-					for _, textPart := range textParts {
-						if text, ok := textPart["text"].(string); ok && text != "" {
-							contentParts = append(contentParts, types.ChatMessagePart{
-								Type: "text",
-								Text: text,
-							})
-						}
-					}
+				// 处理 text 和 image 部分 - 合并到同一个消息中
+				contentParts := make([]types.ChatMessagePart, 0)
 
-					// 只有当有有效内容时才创建消息
-					if len(contentParts) > 0 {
-						userMsg := types.ChatCompletionMessage{
-							Role:    types.ChatMessageRoleUser,
-							Content: contentParts,
-						}
-						openaiRequest.Messages = append(openaiRequest.Messages, userMsg)
+				// 添加文本部分
+				for _, textPart := range textParts {
+					if text, ok := textPart["text"].(string); ok && text != "" {
+						contentParts = append(contentParts, types.ChatMessagePart{
+							Type: "text",
+							Text: text,
+						})
 					}
 				}
 
+				// 添加图片部分 - 转换为 OpenAI 的 image_url 格式
+				for _, imagePart := range imageParts {
+					if source, exists := imagePart["source"].(map[string]interface{}); exists {
+						mediaType, _ := source["media_type"].(string)
+						data, _ := source["data"].(string)
+						if mediaType == "" {
+							mediaType = "image/png"
+						}
+						if data != "" {
+							// 构建 data URL: data:image/png;base64,xxxxx
+							dataURL := fmt.Sprintf("data:%s;base64,%s", mediaType, data)
+							contentParts = append(contentParts, types.ChatMessagePart{
+								Type: "image_url",
+								ImageURL: &types.ChatMessageImageURL{
+									URL: dataURL,
+								},
+							})
+						}
+					}
+				}
+
+				// 只有当有有效内容时才创建消息
+				if len(contentParts) > 0 {
+					userMsg := types.ChatCompletionMessage{
+						Role:    types.ChatMessageRoleUser,
+						Content: contentParts,
+					}
+					openaiRequest.Messages = append(openaiRequest.Messages, userMsg)
+				}
+
 			} else if msg.Role == "assistant" {
-				// 助手消息：分别处理 text 和 tool_use
+				// 助手消息：分别处理 thinking, text 和 tool_use
+				thinkingParts := make([]map[string]interface{}, 0)
 				textParts := make([]map[string]interface{}, 0)
 				toolCallParts := make([]map[string]interface{}, 0)
 
@@ -483,6 +555,11 @@ func (r *relayClaudeOnly) convertClaudeToOpenAIWithOptions(cleanSchema bool) (*t
 						partType, _ := partMap["type"].(string)
 
 						switch partType {
+						case "thinking", "redacted_thinking":
+							// thinking 块必须有 signature 才能转换
+							if signature, exists := partMap["signature"].(string); exists && signature != "" {
+								thinkingParts = append(thinkingParts, partMap)
+							}
 						case "text":
 							if _, exists := partMap["text"].(string); exists {
 								textParts = append(textParts, partMap)
@@ -495,16 +572,47 @@ func (r *relayClaudeOnly) convertClaudeToOpenAIWithOptions(cleanSchema bool) (*t
 					}
 				}
 
-				// 处理 text 部分 - 每个文本部分创建单独的助手消息
+				// 创建包含所有内容的 assistant 消息
+				contentParts := make([]types.ChatMessagePart, 0)
 
+				// 处理 thinking 部分 - 使用 ChatMessagePart 携带 thinking 信息
+				for _, thinkingPart := range thinkingParts {
+					partType, _ := thinkingPart["type"].(string)
+					signature, _ := thinkingPart["signature"].(string)
+					thinkingText := ""
+
+					// thinking 块的文本在 "thinking" 字段
+					// redacted_thinking 块的文本可能在 "thinking" 或 "data" 字段
+					if text, exists := thinkingPart["thinking"].(string); exists {
+						thinkingText = text
+					} else if data, exists := thinkingPart["data"].(string); exists {
+						thinkingText = data
+					}
+
+					contentParts = append(contentParts, types.ChatMessagePart{
+						Type:              partType, // "thinking" 或 "redacted_thinking"
+						Thinking:          thinkingText,
+						ThinkingSignature: signature,
+					})
+				}
+
+				// 处理 text 部分
 				for _, textPart := range textParts {
 					if text, ok := textPart["text"].(string); ok && text != "" {
-						assistantMsg := types.ChatCompletionMessage{
-							Role:    types.ChatMessageRoleAssistant,
-							Content: text,
-						}
-						openaiRequest.Messages = append(openaiRequest.Messages, assistantMsg)
+						contentParts = append(contentParts, types.ChatMessagePart{
+							Type: "text",
+							Text: text,
+						})
 					}
+				}
+
+				// 如果有 thinking 或 text 内容，创建消息
+				if len(contentParts) > 0 {
+					assistantMsg := types.ChatCompletionMessage{
+						Role:    types.ChatMessageRoleAssistant,
+						Content: contentParts,
+					}
+					openaiRequest.Messages = append(openaiRequest.Messages, assistantMsg)
 				}
 
 				// 处理 tool_use 部分 - 创建单独的助手消息，content 为 null
@@ -614,51 +722,107 @@ func (r *relayClaudeOnly) cleanSchemaForDirectGemini(schema interface{}) interfa
 	return r.deepCleanSchema(schema)
 }
 
+// geminiUnsupportedSchemaKeys Gemini API 不支持的 JSON Schema 字段
+var geminiUnsupportedSchemaKeys = map[string]bool{
+	"$schema":              true,
+	"$id":                  true,
+	"$ref":                 true,
+	"$defs":                true,
+	"definitions":          true,
+	"title":                true,
+	"example":              true,
+	"examples":             true,
+	"readOnly":             true,
+	"writeOnly":            true,
+	"default":              true,
+	"const":                true,
+	"exclusiveMaximum":     true,
+	"exclusiveMinimum":     true,
+	"oneOf":                true,
+	"anyOf":                true,
+	"allOf":                true,
+	"additionalItems":      true,
+	"contains":             true,
+	"additionalProperties": true,
+	"patternProperties":    true,
+	"dependencies":         true,
+	"propertyNames":        true,
+	"if":                   true,
+	"then":                 true,
+	"else":                 true,
+	"contentEncoding":      true,
+	"contentMediaType":     true,
+}
+
 // deepCleanSchema 递归清理schema中Gemini API不支持的字段
 func (r *relayClaudeOnly) deepCleanSchema(obj interface{}) interface{} {
 	switch v := obj.(type) {
 	case map[string]interface{}:
-		// 创建新的map避免修改原始数据
 		cleaned := make(map[string]interface{})
 		for key, value := range v {
-			// 跳过Gemini API不支持的字段
-			if key == "$schema" || key == "additionalProperties" {
+			if geminiUnsupportedSchemaKeys[key] {
 				continue
 			}
 
-			// 处理format字段的限制
+			// 处理 type: ["string", "null"] 转换为 type: "string" + nullable: true
+			if key == "type" {
+				if typeArr, ok := value.([]interface{}); ok {
+					hasNull := false
+					var nonNullType string
+					for _, t := range typeArr {
+						if tStr, ok := t.(string); ok {
+							if tStr == "null" {
+								hasNull = true
+							} else if nonNullType == "" {
+								nonNullType = tStr
+							}
+						}
+					}
+					if nonNullType != "" {
+						cleaned["type"] = nonNullType
+					} else {
+						cleaned["type"] = "string"
+					}
+					if hasNull {
+						cleaned["nullable"] = true
+					}
+					continue
+				}
+			}
+
+			// 处理 format 字段：Gemini 只支持 STRING 类型的 "enum" 和 "date-time"
 			if key == "format" {
-				// Gemini API只支持STRING类型的"enum"和"date-time"格式
 				if formatStr, ok := value.(string); ok {
-					// 检查当前对象是否为string类型
 					if typeVal, exists := v["type"]; exists && typeVal == "string" {
-						// 只保留Gemini支持的format
 						if formatStr == "enum" || formatStr == "date-time" {
 							cleaned[key] = value
 						}
-						// 其他format（如uri、url、email等）直接跳过
 						continue
 					} else {
-						// 非string类型，保留format字段
 						cleaned[key] = r.deepCleanSchema(value)
 						continue
 					}
 				}
 			}
 
-			// 递归清理嵌套对象
 			cleaned[key] = r.deepCleanSchema(value)
 		}
+
+		// 补充缺失的 type: "object"
+		if _, hasProperties := cleaned["properties"]; hasProperties {
+			if _, hasType := cleaned["type"]; !hasType {
+				cleaned["type"] = "object"
+			}
+		}
+
 		return cleaned
 	case []interface{}:
-		// 递归清理数组中的每个元素
 		cleaned := make([]interface{}, len(v))
 		for i, item := range v {
 			cleaned[i] = r.deepCleanSchema(item)
 		}
 		return cleaned
 	default:
-		// 基本类型直接返回
 		return obj
 	}
 }

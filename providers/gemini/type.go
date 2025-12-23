@@ -204,7 +204,7 @@ type GeminiPartCodeExecutionResult struct {
 type GeminiFunctionCall struct {
 	Name string                 `json:"name,omitempty"`
 	Args map[string]interface{} `json:"args,omitempty"`
-	Id   string                 `json:"-"` // 忽略 OpenAI 格式的 id 字段
+	Id   string                 `json:"id,omitempty"`
 }
 
 func (candidate *GeminiChatCandidate) ToOpenAIStreamChoice(request *types.ChatCompletionRequest) types.ChatCompletionStreamChoice {
@@ -418,8 +418,7 @@ type GeminiFunctionResponse struct {
 }
 
 type GeminiFunctionResponseContent struct {
-	Name    string `json:"name,omitempty"`
-	Content string `json:"content,omitempty"`
+	Output string `json:"output,omitempty"`
 }
 
 func (g *GeminiFunctionCall) ToOpenAITool() *types.ChatCompletionToolCalls {
@@ -678,6 +677,7 @@ func OpenAIToGeminiChatContent(openaiContents []types.ChatCompletionMessage) ([]
 					FunctionCall: &GeminiFunctionCall{
 						Name: toolCall.Function.Name,
 						Args: args,
+						Id:   toolCall.Id,
 					},
 				})
 
@@ -699,12 +699,20 @@ func OpenAIToGeminiChatContent(openaiContents []types.ChatCompletionMessage) ([]
 				continue
 			}
 
+			// 构建 ID 字段（如果有 ToolCallID）
+			var idField json.RawMessage
+			if openaiContent.ToolCallID != "" {
+				if idBytes, err := json.Marshal(openaiContent.ToolCallID); err == nil {
+					idField = idBytes
+				}
+			}
+
 			functionPart := GeminiPart{
 				FunctionResponse: &GeminiFunctionResponse{
 					Name: *openaiContent.Name,
+					ID:   idField,
 					Response: GeminiFunctionResponseContent{
-						Name:    *openaiContent.Name,
-						Content: openaiContent.StringContent(),
+						Output: openaiContent.StringContent(),
 					},
 				},
 			}
@@ -723,8 +731,25 @@ func OpenAIToGeminiChatContent(openaiContents []types.ChatCompletionMessage) ([]
 			openaiMessagePart := openaiContent.ParseContent()
 			imageNum := 0
 			for _, openaiPart := range openaiMessagePart {
+				// 处理 thinking 和 redacted_thinking 类型
+				if openaiPart.Type == "thinking" || openaiPart.Type == "redacted_thinking" {
+					if openaiPart.ThinkingSignature != "" {
+						var sigField json.RawMessage
+						if sigBytes, err := json.Marshal(openaiPart.ThinkingSignature); err == nil {
+							sigField = sigBytes
+						}
+						content.Parts = append(content.Parts, GeminiPart{
+							Text:             openaiPart.Thinking,
+							Thought:          true,
+							ThoughtSignature: sigField,
+						})
+					}
+					continue
+				}
+
 				if openaiPart.Type == types.ContentTypeText {
-					if openaiPart.Text == "" {
+					// 过滤纯空白文本
+					if isEmptyOrOnlyNewlines(openaiPart.Text) {
 						continue
 					}
 					imageSymbols := ImageSymbolAcMachines.MultiPatternSearch([]rune(openaiPart.Text), false)

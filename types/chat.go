@@ -153,6 +153,10 @@ type ChatMessagePart struct {
 	Refusal    string               `json:"refusal,omitempty"`
 
 	File *ChatMessageFile `json:"file,omitempty"`
+
+	// Thinking 相关字段 - 用于 Claude thinking 块的转换
+	Thinking          string `json:"thinking,omitempty"`
+	ThinkingSignature string `json:"thinking_signature,omitempty"`
 }
 
 type InputAudio struct {
