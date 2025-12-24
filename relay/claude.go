@@ -680,8 +680,22 @@ skipThinking:
 		// 转换为 OpenAI 格式
 
 		for _, tool := range r.claudeRequest.Tools {
+			// 过滤掉 Claude 内置工具类型（反重力等渠道不支持）
+			// 内置工具类型包括: computer_20241022, bash_20241022, text_editor_20241022 等
+			if tool.Type != "" && tool.Type != "custom" {
+				continue
+			}
+
+			// 确保有工具名称
+			if tool.Name == "" {
+				continue
+			}
+
 			var parameters interface{}
-			if cleanSchema {
+			if tool.InputSchema == nil {
+				// 如果 InputSchema 为空，设置默认空 schema
+				parameters = map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}
+			} else if cleanSchema {
 				// 为直接Gemini渠道清理schema中的不兼容字段
 				parameters = r.cleanSchemaForDirectGemini(tool.InputSchema)
 			} else {
