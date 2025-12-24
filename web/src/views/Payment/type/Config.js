@@ -38,7 +38,7 @@ const PaymentConfig = {
       options: [
         {
           name: '收银台',
-          value: 'epay_gateway'
+          value: 'epay'
         },
         {
           name: '支付宝',

@@ -57,9 +57,10 @@ func (e *Epay) Pay(config *types.PayConfig, gatewayConfig string) (*types.PayReq
 
 func (e *Epay) HandleCallback(c *gin.Context, gatewayConfig string) (*types.PayNotify, error) {
 	queryMap := make(map[string]string)
-	if err := c.ShouldBindQuery(&queryMap); err != nil {
-		c.Writer.Write([]byte("fail"))
-		return nil, err
+	for key, values := range c.Request.URL.Query() {
+		if len(values) > 0 {
+			queryMap[key] = values[0]
+		}
 	}
 
 	epayConfig, err := getEpayConfig(gatewayConfig)

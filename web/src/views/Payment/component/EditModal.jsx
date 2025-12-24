@@ -57,13 +57,7 @@ const EditModal = ({ open, paymentId, onCancel, onOk }) => {
   const submit = async (values, { setErrors, setStatus, setSubmitting }) => {
     setSubmitting(true);
 
-    // 转换 pay_type: 'epay_gateway' -> ''
-    const processedConfig = { ...values.config };
-    if (processedConfig.pay_type === 'epay_gateway') {
-      processedConfig.pay_type = '';
-    }
-
-    let config = JSON.stringify(processedConfig);
+    let config = JSON.stringify(values.config);
     let res;
     values = trims(values);
     try {
@@ -98,12 +92,6 @@ const EditModal = ({ open, paymentId, onCancel, onOk }) => {
       if (success) {
         data.is_edit = true;
         data.config = JSON.parse(data.config);
-
-        // 转换 pay_type: '' -> 'epay_gateway'
-        if (data.config.pay_type === '') {
-          data.config.pay_type = 'epay_gateway';
-        }
-
         setInputs(data);
       } else {
         showError(message);
