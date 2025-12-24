@@ -209,8 +209,15 @@ func RelayHandler(relay RelayBaseInterface) (err *types.OpenAIErrorWithStatusCod
 		usage.CompletionTokens = common.CountTokenText(usage.TextBuilder.String(), relay.getModelName())
 		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	}
+
+	// 即使出错，只要有实际输出就记录计费，避免上游已计费但本地未记录
 	if err != nil {
-		quota.Undo(relay.getContext())
+		if usage.CompletionTokens > 0 {
+			quota.SetFirstResponseTime(relay.GetFirstResponseTime())
+			quota.Consume(relay.getContext(), usage, relay.IsStream())
+		} else {
+			quota.Undo(relay.getContext())
+		}
 		return
 	}
 
