@@ -113,53 +113,39 @@ func getTimestampGroupsSelect(fieldName, groupType, alias string) string {
 	dateFormat := getDateFormat(groupType)
 	var groupSelect string
 
-	// 获取系统时区偏移
-	getTimezoneOffset := func() (string, string) {
-		// 优先使用系统本地时区（Docker中通过TZ环境变量设置）
-		location := time.Local
-
-		// 也可以通过环境变量TZ覆盖
-		if tzEnv := os.Getenv("TZ"); tzEnv != "" {
-			if loc, err := time.LoadLocation(tzEnv); err == nil {
-				location = loc
-			}
+	// 获取系统时区信息
+	location := time.Local
+	if tzEnv := os.Getenv("TZ"); tzEnv != "" {
+		if loc, err := time.LoadLocation(tzEnv); err == nil {
+			location = loc
 		}
+	}
+	now := time.Now().In(location)
+	_, offsetSeconds := now.Zone()
 
-		// 获取当前时间在指定时区的偏移量
-		now := time.Now().In(location)
-		_, offset := now.Zone()
-
-		// 计算小时偏移
-		hours := offset / 3600
-		minutes := (offset % 3600) / 60
-
-		// 生成不同数据库需要的格式
-		var sqliteOffset, mysqlOffset string
+	// SQLite 需要特殊格式的偏移字符串
+	getSqliteOffset := func() string {
+		hours := offsetSeconds / 3600
+		minutes := (offsetSeconds % 3600) / 60
 		if hours >= 0 {
-			sqliteOffset = fmt.Sprintf("+%d hours", hours)
+			offset := fmt.Sprintf("+%d hours", hours)
 			if minutes != 0 {
-				sqliteOffset += fmt.Sprintf(" %d minutes", minutes)
+				offset += fmt.Sprintf(" %d minutes", minutes)
 			}
-			mysqlOffset = fmt.Sprintf("+%02d:%02d", hours, minutes)
-		} else {
-			sqliteOffset = fmt.Sprintf("%d hours", hours) // 负数自带减号
-			if minutes != 0 {
-				sqliteOffset += fmt.Sprintf(" %d minutes", -minutes) // 分钟也要是负数
-			}
-			mysqlOffset = fmt.Sprintf("-%02d:%02d", -hours, -minutes)
+			return offset
 		}
-
-		return sqliteOffset, mysqlOffset
+		offset := fmt.Sprintf("%d hours", hours)
+		if minutes != 0 {
+			offset += fmt.Sprintf(" %d minutes", -minutes)
+		}
+		return offset
 	}
 
 	if common.UsingPostgreSQL {
-		// PostgreSQL: 使用系统时区或TZ环境变量
 		tzName := "UTC"
 		if tzEnv := os.Getenv("TZ"); tzEnv != "" {
 			tzName = tzEnv
 		} else {
-			// 尝试获取系统时区名称
-			now := time.Now()
 			zone, _ := now.Zone()
 			if zone != "" {
 				tzName = zone
@@ -167,13 +153,28 @@ func getTimestampGroupsSelect(fieldName, groupType, alias string) string {
 		}
 		groupSelect = fmt.Sprintf(`TO_CHAR(date_trunc('%s', to_timestamp(%s) AT TIME ZONE '%s'), '%s') as %s`, groupType, fieldName, tzName, dateFormat, alias)
 	} else if common.UsingSQLite {
-		// SQLite: 动态计算时区偏移
-		sqliteOffset, _ := getTimezoneOffset()
-		groupSelect = fmt.Sprintf(`strftime('%s', datetime(%s, 'unixepoch', '%s')) as %s`, dateFormat, fieldName, sqliteOffset, alias)
+		groupSelect = fmt.Sprintf(`strftime('%s', datetime(%s, 'unixepoch', '%s')) as %s`, dateFormat, fieldName, getSqliteOffset(), alias)
 	} else {
-		// MySQL: 动态计算时区偏移
-		_, mysqlOffset := getTimezoneOffset()
-		groupSelect = fmt.Sprintf(`DATE_FORMAT(CONVERT_TZ(FROM_UNIXTIME(%s), '+00:00', '%s'), '%s') as %s`, fieldName, mysqlOffset, dateFormat, alias)
+		// MySQL: 检测 MySQL 时区，决定是否需要转换
+		var mysqlTz string
+		DB.Raw("SELECT @@session.time_zone").Scan(&mysqlTz)
+		mysqlIsUTC := mysqlTz == "UTC" || mysqlTz == "+00:00"
+
+		if mysqlIsUTC {
+			// MySQL 是 UTC，需要转换为本地时区
+			hours := offsetSeconds / 3600
+			minutes := (offsetSeconds % 3600) / 60
+			var tzOffset string
+			if hours >= 0 {
+				tzOffset = fmt.Sprintf("+%02d:%02d", hours, minutes)
+			} else {
+				tzOffset = fmt.Sprintf("-%02d:%02d", -hours, -minutes)
+			}
+			groupSelect = fmt.Sprintf(`DATE_FORMAT(CONVERT_TZ(FROM_UNIXTIME(%s), '+00:00', '%s'), '%s') as %s`, fieldName, tzOffset, dateFormat, alias)
+		} else {
+			// MySQL 是本地时区（SYSTEM 或 +08:00 等），直接使用
+			groupSelect = fmt.Sprintf(`DATE_FORMAT(FROM_UNIXTIME(%s), '%s') as %s`, fieldName, dateFormat, alias)
+		}
 	}
 
 	return groupSelect

@@ -72,6 +72,7 @@ func SetApiRouter(router *gin.Engine) {
 		}
 
 		apiRouter.Any("/payment/notify/:uuid", controller.PaymentCallback)
+		apiRouter.GET("/epay/notify", controller.EpayCallback)
 
 		userRoute := apiRouter.Group("/user")
 		{
