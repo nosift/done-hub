@@ -26,6 +26,9 @@ func (p *AntigravityProvider) CreateChatCompletion(request *types.ChatCompletion
 		return nil, errWithCode
 	}
 
+	// 修复空 Parameters 问题：Claude API 要求 input_schema 必须存在
+	fixNilToolParameters(geminiRequest)
+
 	// 构建内部API请求
 	req, errWithCode := p.getChatRequest(geminiRequest, false, false)
 	if errWithCode != nil {
@@ -57,6 +60,9 @@ func (p *AntigravityProvider) CreateChatCompletionStream(request *types.ChatComp
 		return nil, errWithCode
 	}
 
+	// 修复空 Parameters 问题：Claude API 要求 input_schema 必须存在
+	fixNilToolParameters(geminiRequest)
+
 	// 构建内部API请求
 	req, errWithCode := p.getChatRequest(geminiRequest, true, false)
 	if errWithCode != nil {
@@ -78,6 +84,27 @@ func (p *AntigravityProvider) CreateChatCompletionStream(request *types.ChatComp
 	}
 
 	return requester.RequestStream(p.Requester, resp, chatHandler.HandlerStream)
+}
+
+// fixNilToolParameters 修复空的 tool parameters
+// gemini.ConvertFromChatOpenai 会将空 properties 的 schema 设为 nil
+// 但 Claude API 要求 input_schema 必须存在
+func fixNilToolParameters(geminiRequest *gemini.GeminiChatRequest) {
+	if geminiRequest == nil {
+		return
+	}
+
+	for i := range geminiRequest.Tools {
+		for j := range geminiRequest.Tools[i].FunctionDeclarations {
+			if geminiRequest.Tools[i].FunctionDeclarations[j].Parameters == nil {
+				// 每次创建新的 map 避免共享引用
+				geminiRequest.Tools[i].FunctionDeclarations[j].Parameters = map[string]interface{}{
+					"type":       "object",
+					"properties": map[string]interface{}{},
+				}
+			}
+		}
+	}
 }
 
 // generateRequestID 生成请求 ID

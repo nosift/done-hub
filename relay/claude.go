@@ -333,18 +333,41 @@ func (r *relayClaudeOnly) sendCustomChannelWithClaudeFormat() (err *types.OpenAI
 	return err, false
 }
 
+// Schema清理模式
+type schemaCleanMode int
+
+const (
+	schemaCleanNone     schemaCleanMode = iota // 不清理
+	schemaCleanFull                            // 完全清理（移除不支持字段 + 转换 type 数组为 nullable）
+	schemaCleanMetaOnly                        // 仅清理元字段（移除 $schema 等，但保留 type 数组格式）
+)
+
 // convertClaudeToOpenAI 将Claude请求转换为OpenAI格式
 func (r *relayClaudeOnly) convertClaudeToOpenAI() (*types.ChatCompletionRequest, *types.OpenAIErrorWithStatusCode) {
-	return r.convertClaudeToOpenAIWithOptions(true) // 默认进行schema清理
+	return r.convertClaudeToOpenAIWithMode(schemaCleanFull) // 默认完全清理
 }
 
 // convertClaudeToOpenAIForVertexAI 专门为VertexAI渠道转换，不进行schema清理
 func (r *relayClaudeOnly) convertClaudeToOpenAIForVertexAI() (*types.ChatCompletionRequest, *types.OpenAIErrorWithStatusCode) {
-	return r.convertClaudeToOpenAIWithOptions(false) // 不进行schema清理
+	return r.convertClaudeToOpenAIWithMode(schemaCleanNone) // 不进行schema清理
 }
 
-// convertClaudeToOpenAIWithOptions 将Claude请求转换为OpenAI格式，支持选项控制
+// convertClaudeToOpenAIForAntigravity 专门为Antigravity渠道转换
+// 移除 $schema 等元字段，但保留 type 数组格式（兼容 Claude API）
+func (r *relayClaudeOnly) convertClaudeToOpenAIForAntigravity() (*types.ChatCompletionRequest, *types.OpenAIErrorWithStatusCode) {
+	return r.convertClaudeToOpenAIWithMode(schemaCleanMetaOnly)
+}
+
+// convertClaudeToOpenAIWithOptions 向后兼容的包装函数
 func (r *relayClaudeOnly) convertClaudeToOpenAIWithOptions(cleanSchema bool) (*types.ChatCompletionRequest, *types.OpenAIErrorWithStatusCode) {
+	if cleanSchema {
+		return r.convertClaudeToOpenAIWithMode(schemaCleanFull)
+	}
+	return r.convertClaudeToOpenAIWithMode(schemaCleanNone)
+}
+
+// convertClaudeToOpenAIWithMode 将Claude请求转换为OpenAI格式，支持多种清理模式
+func (r *relayClaudeOnly) convertClaudeToOpenAIWithMode(cleanMode schemaCleanMode) (*types.ChatCompletionRequest, *types.OpenAIErrorWithStatusCode) {
 	openaiRequest := &types.ChatCompletionRequest{
 		Model:       r.claudeRequest.Model,
 		Messages:    make([]types.ChatCompletionMessage, 0),
@@ -677,7 +700,6 @@ skipThinking:
 	// 处理工具定义
 	if len(r.claudeRequest.Tools) > 0 {
 		tools := make([]*types.ChatCompletionTool, 0)
-		// 转换为 OpenAI 格式
 
 		for _, tool := range r.claudeRequest.Tools {
 			// 过滤掉 Claude 内置工具类型（反重力等渠道不支持）
@@ -695,12 +717,18 @@ skipThinking:
 			if tool.InputSchema == nil {
 				// 如果 InputSchema 为空，设置默认空 schema
 				parameters = map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}
-			} else if cleanSchema {
-				// 为直接Gemini渠道清理schema中的不兼容字段
-				parameters = r.cleanSchemaForDirectGemini(tool.InputSchema)
 			} else {
-				// VertexAI版本：直接使用原始的InputSchema，不进行清理
-				parameters = tool.InputSchema
+				switch cleanMode {
+				case schemaCleanFull:
+					// 完全清理：移除不支持字段 + 转换 type 数组为 nullable
+					parameters = r.cleanSchemaForDirectGemini(tool.InputSchema)
+				case schemaCleanMetaOnly:
+					// 仅清理元字段：移除 $schema 等，但保留 type 数组格式（兼容 Claude API）
+					parameters = r.cleanSchemaMetaOnly(tool.InputSchema)
+				default:
+					// 不清理：直接使用原始的 InputSchema
+					parameters = tool.InputSchema
+				}
 			}
 
 			// input_schema → parameters
@@ -734,6 +762,64 @@ func (r *relayClaudeOnly) cleanSchemaForDirectGemini(schema interface{}) interfa
 
 	// 创建深拷贝避免修改原始数据
 	return r.deepCleanSchema(schema)
+}
+
+// cleanSchemaMetaOnly 仅清理 JSON Schema 元字段，保留 type 数组格式
+func (r *relayClaudeOnly) cleanSchemaMetaOnly(schema interface{}) interface{} {
+	if schema == nil {
+		return schema
+	}
+	return r.deepCleanSchemaMetaOnly(schema)
+}
+
+// deepCleanSchemaMetaOnly 递归清理 schema 中 Antigravity 不支持的字段
+func (r *relayClaudeOnly) deepCleanSchemaMetaOnly(obj interface{}) interface{} {
+	switch v := obj.(type) {
+	case map[string]interface{}:
+		cleaned := make(map[string]interface{})
+		for key, value := range v {
+			if antigravityUnsupportedSchemaKeys[key] {
+				continue
+			}
+			cleaned[key] = r.deepCleanSchemaMetaOnly(value)
+		}
+
+		// 补充缺失的 type: "object"
+		if _, hasProperties := cleaned["properties"]; hasProperties {
+			if _, hasType := cleaned["type"]; !hasType {
+				cleaned["type"] = "object"
+			}
+		}
+
+		return cleaned
+	case []interface{}:
+		cleaned := make([]interface{}, len(v))
+		for i, item := range v {
+			cleaned[i] = r.deepCleanSchemaMetaOnly(item)
+		}
+		return cleaned
+	default:
+		return obj
+	}
+}
+
+// antigravityUnsupportedSchemaKeys Antigravity 渠道不支持的 JSON Schema 字段
+// 参考 gcli2api-demo/src/anthropic_converter.py 的 clean_json_schema 函数
+var antigravityUnsupportedSchemaKeys = map[string]bool{
+	"$schema":              true,
+	"$id":                  true,
+	"minLength":            true,
+	"maxLength":            true,
+	"minimum":              true,
+	"maximum":              true,
+	"minItems":             true,
+	"maxItems":             true,
+	"pattern":              true,
+	"format":               true,
+	"additionalProperties": true,
+	"default":              true,
+	"examples":             true,
+	"deprecated":           true,
 }
 
 // geminiUnsupportedSchemaKeys Gemini API 不支持的 JSON Schema 字段
@@ -1676,8 +1762,6 @@ func (r *relayClaudeOnly) convertOpenAIStreamToClaudeWithTransformer(stream requ
 			select {
 			case rawLine, ok := <-dataChan:
 				if !ok {
-					// 数据通道已关闭
-					logger.SysLog("流数据通道已关闭")
 					return
 				}
 				// 写入原始的 OpenAI 流数据
@@ -1685,8 +1769,6 @@ func (r *relayClaudeOnly) convertOpenAIStreamToClaudeWithTransformer(stream requ
 
 			case err, ok := <-errChan:
 				if !ok {
-					// 错误通道已关闭
-					logger.SysLog("流错误通道已关闭")
 					return
 				}
 				if err != nil {
@@ -1849,8 +1931,8 @@ func (r *relayClaudeOnly) sendGeminiWithClaudeFormat() (err *types.OpenAIErrorWi
 // Claude format -> OpenAI format -> Antigravity API -> OpenAI response -> Claude format
 func (r *relayClaudeOnly) sendAntigravityWithClaudeFormat() (err *types.OpenAIErrorWithStatusCode, done bool) {
 
-	// 将Claude请求转换为OpenAI格式
-	openaiRequest, err := r.convertClaudeToOpenAI()
+	// 使用 Antigravity 专用的 schema 清理模式
+	openaiRequest, err := r.convertClaudeToOpenAIForAntigravity()
 	if err != nil {
 		return err, true
 	}
