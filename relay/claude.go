@@ -781,6 +781,34 @@ func (r *relayClaudeOnly) deepCleanSchemaMetaOnly(obj interface{}) interface{} {
 			if antigravityUnsupportedSchemaKeys[key] {
 				continue
 			}
+
+			// 处理 type: ["string", "null"] 转换为 type: "string" + nullable: true
+			// Antigravity 后端转发到 Gemini 时需要此转换
+			if key == "type" {
+				if typeArr, ok := value.([]interface{}); ok {
+					hasNull := false
+					var nonNullType string
+					for _, t := range typeArr {
+						if tStr, ok := t.(string); ok {
+							if tStr == "null" {
+								hasNull = true
+							} else if nonNullType == "" {
+								nonNullType = tStr
+							}
+						}
+					}
+					if nonNullType != "" {
+						cleaned["type"] = nonNullType
+					} else {
+						cleaned["type"] = "string"
+					}
+					if hasNull {
+						cleaned["nullable"] = true
+					}
+					continue
+				}
+			}
+
 			cleaned[key] = r.deepCleanSchemaMetaOnly(value)
 		}
 
