@@ -13,6 +13,7 @@ import ButtonGroup from '@mui/material/ButtonGroup'
 import Toolbar from '@mui/material/Toolbar'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import Alert from '@mui/material/Alert'
+import Collapse from '@mui/material/Collapse'
 
 import { Box, Button, Card, Container, Divider, IconButton, Stack, Typography } from '@mui/material'
 import ChannelTableRow from './component/TableRow'
@@ -101,6 +102,9 @@ export default function ChannelList() {
   // 批量删除相关状态
   const [selectedChannels, setSelectedChannels] = useState([])
   const [batchDeleteConfirm, setBatchDeleteConfirm] = useState(false)
+
+  // 提示框展开状态
+  const [alertExpanded, setAlertExpanded] = useState(false)
 
   const handleSort = (event, id) => {
     const isAsc = orderBy === id && order === 'asc'
@@ -500,17 +504,41 @@ export default function ChannelList() {
           </Button>
         </ButtonGroup>
       </Stack>
-      <Stack mb={5}>
-        <Alert severity="info">
-          {t('channel_index.priorityWeightExplanation')}
-          <br/>
-          {t('channel_index.description1')}
-          <br/>
-          {t('channel_index.description2')}
-          <br/>
-          {t('channel_index.description3')}
-          <br/>
-          {t('channel_index.description4')}
+      <Stack mb={2}>
+        <Alert
+          severity="info"
+          action={
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation()
+                setAlertExpanded(!alertExpanded)
+              }}
+              sx={{ ml: 1 }}
+            >
+              <Icon
+                icon={alertExpanded ? 'solar:alt-arrow-up-line-duotone' : 'solar:alt-arrow-down-line-duotone'}
+                width={18}
+              />
+            </IconButton>
+          }
+          sx={{ cursor: 'pointer' }}
+          onClick={() => setAlertExpanded(!alertExpanded)}
+        >
+          <Typography variant="body2" component="span">
+            {t('channel_index.priorityWeightExplanation')}
+          </Typography>
+          <Collapse in={alertExpanded} timeout="auto">
+            <Box sx={{ mt: 1 }}>
+              {t('channel_index.description1')}
+              <br/>
+              {t('channel_index.description2')}
+              <br/>
+              {t('channel_index.description3')}
+              <br/>
+              {t('channel_index.description4')}
+            </Box>
+          </Collapse>
         </Alert>
       </Stack>
       <Card>
