@@ -204,9 +204,9 @@ func (c *OAuth2Credentials) ToJSON() (string, error) {
 	return string(data), nil
 }
 
-// demoCredentials demo 格式的凭证（兼容 gcli2api-demo 格式）
+// demoCredentials demo 格式的凭证
 type demoCredentials struct {
-	Token        string `json:"token"`        // demo 使用 token 而不是 access_token
+	Token        string `json:"token"`
 	Expiry       string `json:"expiry"`       // demo 使用 expiry 而不是 expires_at
 	AccessToken  string `json:"access_token"` // 标准格式
 	RefreshToken string `json:"refresh_token"`

@@ -440,7 +440,7 @@ func ConvertFromChatOpenai(request *types.ChatCompletionRequest) (*GeminiChatReq
 		budget := request.Reasoning.MaxTokens
 		maxTokens := request.MaxTokens
 
-		// 验证 thinkingBudget < maxOutputTokens（与 gcli2api-demo 保持一致）
+		// 验证 thinkingBudget < maxOutputTokens
 		if maxTokens > 0 && budget >= maxTokens {
 			// 自动下调 budget
 			budget = maxTokens - 1
@@ -521,7 +521,7 @@ func ConvertFromChatOpenai(request *types.ChatCompletionRequest) (*GeminiChatReq
 
 	if systemContent != "" {
 		geminiRequest.SystemInstruction = &GeminiChatContent{
-			Role: "user", // 与 gcli2api-demo 保持一致
+			Role: "user",
 			Parts: []GeminiPart{
 				{Text: systemContent},
 			},
@@ -903,7 +903,7 @@ func (p *GeminiProvider) pluginHandle(request *GeminiChatRequest) {
 
 // checkLastAssistantFirstBlockType 检查最后一条 assistant 消息的第一个 block 类型
 // 返回值：第一个 block 的类型，如果没有 assistant 消息或没有数组格式的 content 则返回空字符串
-// 注意：只检查数组格式的 content，与 gcli2api-demo 保持一致
+// 注意：只检查数组格式的 content
 func checkLastAssistantFirstBlockType(messages []types.ChatCompletionMessage) string {
 	// 从后往前遍历，找到最后一条 assistant 消息
 	for i := len(messages) - 1; i >= 0; i-- {
@@ -912,7 +912,7 @@ func checkLastAssistantFirstBlockType(messages []types.ChatCompletionMessage) st
 			continue
 		}
 
-		// 检查 content 是否为数组格式（与 gcli2api-demo 保持一致）
+		// 检查 content 是否为数组格式
 		// 如果 content 是字符串，跳过这条消息
 		if _, ok := msg.Content.(string); ok {
 			continue
@@ -932,7 +932,7 @@ func checkLastAssistantFirstBlockType(messages []types.ChatCompletionMessage) st
 }
 
 // shouldEnableThinking 检查是否应该启用 thinking
-// 根据 gcli2api-demo 的逻辑：如果启用 thinking 但历史 assistant 消息不以 thinking/redacted_thinking 开头，
+// 如果启用 thinking 但历史 assistant 消息不以 thinking/redacted_thinking 开头，
 // 则不应该下发 thinkingConfig（避免下游 400 错误）
 func shouldEnableThinking(messages []types.ChatCompletionMessage) bool {
 	firstBlockType := checkLastAssistantFirstBlockType(messages)

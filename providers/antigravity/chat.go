@@ -143,7 +143,7 @@ func (p *AntigravityProvider) getChatRequest(geminiRequest *gemini.GeminiChatReq
 			return nil, common.ErrorWrapper(err, "unmarshal_request_failed", http.StatusInternalServerError)
 		}
 
-		// 确保 contents 中每个 content 都有 role 字段（与 gcli2api-demo 保持一致）
+		// 确保 contents 中每个 content 都有 role 字段
 		// 注意：不删除 functionCall/functionResponse 的 id 字段，Antigravity API 支持该字段
 		if contents, ok := rawMap["contents"].([]interface{}); ok {
 			for _, content := range contents {
@@ -217,7 +217,7 @@ func (p *AntigravityProvider) getChatRequest(geminiRequest *gemini.GeminiChatReq
 
 	requestMap["session_id"] = fmt.Sprintf("session-%s", uuid.New().String())
 
-	// Antigravity 不需要 safetySettings，删除以保持与 gcli2api-demo 一致
+	// Antigravity 不需要 safetySettings
 	delete(requestMap, "safetySettings")
 
 	applyAntigravityGenerationConfigDefaults(requestMap)
@@ -362,7 +362,7 @@ func (h *AntigravityStreamHandler) convertToOpenaiStream(geminiResponse *gemini.
 	}
 }
 
-// Antigravity 默认的 stopSequences（与 gcli2api-demo 保持一致）
+// Antigravity 默认的 stopSequences
 var defaultAntigravityStopSequences = []string{
 	"<|user|>",
 	"<|bot|>",
