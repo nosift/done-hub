@@ -110,24 +110,20 @@ func CheckLimitModel(c *gin.Context, modelName string) error {
 func buildGroupChain(tokenGroup, backupGroup, userGroup string) []string {
 	var chain []string
 
-	// 如果Token配置了主分组或备用分组，只使用Token配置的分组
-	if tokenGroup != "" || backupGroup != "" {
-		// 添加主分组
-		if tokenGroup != "" {
-			chain = append(chain, tokenGroup)
-		}
-
-		// 添加备用分组（如果与主分组不同）
-		if backupGroup != "" && backupGroup != tokenGroup {
-			chain = append(chain, backupGroup)
-		}
-
-		return chain
+	// 确定主分组：Token.Group 不为空则使用，否则使用用户分组
+	primaryGroup := tokenGroup
+	if primaryGroup == "" {
+		primaryGroup = userGroup
 	}
 
-	// 只有Token完全没配置分组时，才使用用户分组作为兜底
-	if userGroup != "" {
-		chain = append(chain, userGroup)
+	// 添加主分组
+	if primaryGroup != "" {
+		chain = append(chain, primaryGroup)
+	}
+
+	// 添加备用分组（如果不为空且与主分组不同）
+	if backupGroup != "" && backupGroup != primaryGroup {
+		chain = append(chain, backupGroup)
 	}
 
 	return chain
