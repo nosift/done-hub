@@ -61,6 +61,11 @@ func (u *Usage) GetExtraTokens() map[string]int {
 		u.ExtraTokens[config.UsageExtraInputImageTokens] = u.PromptTokensDetails.ImageTokens
 	}
 
+	// 输出图像
+	if u.CompletionTokensDetails.ImageTokens > 0 && u.ExtraTokens[config.UsageExtraOutputImageTokens] == 0 {
+		u.ExtraTokens[config.UsageExtraOutputImageTokens] = u.CompletionTokensDetails.ImageTokens
+	}
+
 	// 输出音频
 	if u.CompletionTokensDetails.AudioTokens > 0 && u.ExtraTokens[config.UsageExtraOutputAudio] == 0 {
 		u.ExtraTokens[config.UsageExtraOutputAudio] = u.CompletionTokensDetails.AudioTokens
@@ -104,6 +109,7 @@ type CompletionTokensDetails struct {
 	ReasoningTokens          int `json:"reasoning_tokens"`
 	AcceptedPredictionTokens int `json:"accepted_prediction_tokens"`
 	RejectedPredictionTokens int `json:"rejected_prediction_tokens"`
+	ImageTokens              int `json:"image_tokens,omitempty"`
 }
 
 func (i *PromptTokensDetails) Merge(other *PromptTokensDetails) {
@@ -131,6 +137,10 @@ type OpenAIError struct {
 	Param      string `json:"param,omitempty"`
 	Type       string `json:"type,omitempty"`
 	InnerError any    `json:"innererror,omitempty"`
+
+	// RateLimitResetAt 限流重置时间（Unix 时间戳，秒）
+	// 用于存储从响应头中解析的冻结时间（如 anthropic-ratelimit-unified-reset）
+	RateLimitResetAt int64 `json:"-"`
 }
 
 func (e *OpenAIError) Error() string {

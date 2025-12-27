@@ -2,6 +2,7 @@ package model
 
 import (
 	"done-hub/common"
+	"done-hub/common/cache"
 	"done-hub/common/config"
 	"done-hub/common/logger"
 	"done-hub/common/redis"
@@ -9,7 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/go-webauthn/webauthn/webauthn"
 	"gorm.io/gorm"
 )
 
@@ -34,6 +37,8 @@ type User struct {
 	LinuxDoUsername   string         `json:"linuxdo_username" gorm:"column:linuxdo_username;index;default:'';"`
 	LinuxDoTrustLevel int            `json:"linuxdo_trust_level" gorm:"type:int;column:linuxdo_trust_level;default:0;"`
 	VerificationCode  string         `json:"verification_code" gorm:"-:all"`                                    // this field is only for Email verification, don't save it to database!
+	InviteCode        string         `json:"invite_code" gorm:"-:all"`                                          // this field is only for registration, don't save it to database!
+	UsedInviteCode    string         `json:"used_invite_code" gorm:"type:varchar(32);index;default:''"`         // the invite code used during registration, for statistics
 	AccessToken       string         `json:"access_token" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
 	Quota             int            `json:"quota" gorm:"type:int;default:0"`
 	UsedQuota         int            `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
@@ -45,6 +50,7 @@ type User struct {
 	AffHistoryQuota   int            `json:"aff_history_quota" gorm:"type:int;default:0;column:aff_history"`
 	InviterId         int            `json:"inviter_id" gorm:"type:int;column:inviter_id;index"`
 	LastLoginTime     int64          `json:"last_login_time" gorm:"bigint;default:0"`
+	LastLoginIp       string         `json:"last_login_ip" gorm:"type:varchar(128);default:''"`
 	CreatedTime       int64          `json:"created_time" gorm:"bigint"`
 	DeletedAt         gorm.DeletedAt `json:"-" gorm:"index"`
 }
@@ -58,11 +64,13 @@ func GetMaxUserId() int {
 }
 
 var allowedUserOrderFields = map[string]bool{
-	"id":           true,
-	"username":     true,
-	"role":         true,
-	"status":       true,
-	"created_time": true,
+	"id":              true,
+	"username":        true,
+	"role":            true,
+	"status":          true,
+	"created_time":    true,
+	"last_login_time": true,
+	"last_login_ip":   true,
 }
 
 func GetUsersList(params *GenericParams) (*DataResult[User], error) {
@@ -73,7 +81,7 @@ func GetUsersList(params *GenericParams) (*DataResult[User], error) {
 		if common.UsingPostgreSQL {
 			groupCol = `"group"`
 		}
-		db = db.Where("id = ? or username LIKE ? or email LIKE ? or display_name LIKE ? or "+groupCol+" LIKE ?", utils.String2Int(params.Keyword), params.Keyword+"%", params.Keyword+"%", params.Keyword+"%", params.Keyword+"%")
+		db = db.Where("id = ? or username LIKE ? or email LIKE ? or display_name LIKE ? or "+groupCol+" LIKE ? or linuxdo_username LIKE ?", utils.String2Int(params.Keyword), params.Keyword+"%", params.Keyword+"%", params.Keyword+"%", params.Keyword+"%", params.Keyword+"%")
 	}
 
 	return PaginateAndOrder[User](db, &params.PaginationParams, &users, allowedUserOrderFields)
@@ -167,6 +175,53 @@ func (user *User) Insert(inviterId int) error {
 	return nil
 }
 
+// InsertWithTx 在指定事务中创建用户
+func (user *User) InsertWithTx(tx *gorm.DB, inviterId int) error {
+	if strings.TrimSpace(user.Username) == "" {
+		return errors.New("用户名不能为空！")
+	}
+	if RecordExistsWithTx(tx, &User{}, "username", user.Username, nil) {
+		return errors.New("用户名已存在！")
+	}
+
+	// 如果提供了邮箱，进行严格验证
+	if user.Email != "" {
+		if err := common.ValidateEmailStrict(user.Email); err != nil {
+			return errors.New("邮箱格式不符合要求")
+		}
+	}
+	var err error
+	if user.Password != "" {
+		user.Password, err = common.Password2Hash(user.Password)
+		if err != nil {
+			return err
+		}
+	}
+	user.Quota = config.QuotaForNewUser
+	user.AccessToken = utils.GetUUID()
+	user.AffCode = utils.GetRandomString(4)
+	user.CreatedTime = utils.GetTimestamp()
+	result := tx.Create(user)
+	if result.Error != nil {
+		return result.Error
+	}
+	if config.QuotaForNewUser > 0 {
+		RecordLogWithTx(tx, user.Id, LogTypeSystem, fmt.Sprintf("新用户注册赠送 %s", common.LogQuota(config.QuotaForNewUser)))
+	}
+	if inviterId != 0 {
+		if config.QuotaForInvitee > 0 {
+			_ = IncreaseUserQuotaWithTx(tx, user.Id, config.QuotaForInvitee)
+			RecordLogWithTx(tx, user.Id, LogTypeSystem, fmt.Sprintf("使用邀请码赠送 %s", common.LogQuota(config.QuotaForInvitee)))
+		}
+		// 注册时的邀请奖励保持原有逻辑，充值时的返利使用新的配置
+		if config.QuotaForInviter > 0 {
+			_ = IncreaseUserQuotaWithTx(tx, inviterId, config.QuotaForInviter)
+			RecordLogWithTx(tx, inviterId, LogTypeSystem, fmt.Sprintf("邀请用户赠送 %s", common.LogQuota(config.QuotaForInviter)))
+		}
+	}
+	return nil
+}
+
 func (user *User) Update(updatePassword bool) error {
 	var err error
 	omitFields := []string{"quota", "used_quota", "request_count", "aff_count", "aff_quota", "aff_history"}
@@ -186,16 +241,63 @@ func (user *User) Update(updatePassword bool) error {
 		config.RootUserEmail = user.Email
 	}
 
-	// 删除缓存
-	if config.RedisEnabled {
-		redis.RedisDel(fmt.Sprintf(UserGroupCacheKey, user.Id))
+	// 删除缓存（支持两套缓存机制）
+	if err == nil {
+		ClearUserGroupAndTokensCache(user.Id)
 	}
 
 	return err
 }
 
 func UpdateUser(id int, fields map[string]interface{}) error {
-	return DB.Model(&User{}).Where("id = ?", id).Updates(fields).Error
+	err := DB.Model(&User{}).Where("id = ?", id).Updates(fields).Error
+	if err != nil {
+		return err
+	}
+
+	// 如果更新了分组字段，清理缓存
+	if _, hasGroup := fields["group"]; hasGroup {
+		ClearUserGroupAndTokensCache(id)
+	}
+
+	return nil
+}
+
+// ClearUserGroupAndTokensCache 清理用户分组和所有Token的缓存
+func ClearUserGroupAndTokensCache(userId int) {
+	if !config.RedisEnabled {
+		return
+	}
+
+	// 清理用户分组缓存
+	userGroupKey := fmt.Sprintf(UserGroupCacheKey, userId)
+	if err := redis.RedisDel(userGroupKey); err != nil {
+		logger.SysError(fmt.Sprintf("清理用户分组Redis缓存失败 userId=%d: %v", userId, err))
+	}
+	if err := cache.DeleteCache(userGroupKey); err != nil {
+		logger.SysError(fmt.Sprintf("清理用户分组缓存失败 userId=%d: %v", userId, err))
+	}
+
+	// 获取用户所有Token的Key
+	var tokenKeys []string
+	err := DB.Model(&Token{}).Where("user_id = ?", userId).Pluck("key", &tokenKeys).Error
+	if err != nil {
+		logger.SysError(fmt.Sprintf("获取用户Token列表失败 userId=%d: %v", userId, err))
+		return
+	}
+
+	// 清理每个Token的缓存
+	for _, tokenKey := range tokenKeys {
+		if tokenKey != "" {
+			cacheKey := fmt.Sprintf(UserTokensKey, tokenKey)
+			if err := redis.RedisDel(cacheKey); err != nil {
+				logger.SysError(fmt.Sprintf("清理Token Redis缓存失败 key=%s: %v", tokenKey, err))
+			}
+			if err := cache.DeleteCache(cacheKey); err != nil {
+				logger.SysError(fmt.Sprintf("清理Token缓存失败 key=%s: %v", tokenKey, err))
+			}
+		}
+	}
 }
 
 func (user *User) Delete() error {
@@ -305,9 +407,12 @@ func (user *User) FillUserByOidcId() error {
 	if user.OidcId == "" {
 		return errors.New("OIDC ID 为空！")
 	}
-	err := DB.Where(User{OidcId: user.OidcId}).First(user)
-	if err != nil {
-		return err.Error
+	result := DB.Where(User{OidcId: user.OidcId}).First(user)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return errors.New("没有找到用户！")
+		}
+		return result.Error
 	}
 	return nil
 }
@@ -316,9 +421,12 @@ func (user *User) FillUserByLinuxDOId() error {
 	if user.LinuxDoId == 0 {
 		return errors.New("LINUX DO ID 为空！")
 	}
-	err := DB.Where(User{LinuxDoId: user.LinuxDoId}).First(user)
-	if err != nil {
-		return err.Error
+	result := DB.Where(User{LinuxDoId: user.LinuxDoId}).First(user)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return errors.New("没有找到用户！")
+		}
+		return result.Error
 	}
 	return nil
 }
@@ -327,9 +435,12 @@ func (user *User) FillUserByUsername() error {
 	if user.Username == "" {
 		return errors.New("username 为空！")
 	}
-	err := DB.Where(User{Username: user.Username}).First(user)
-	if err != nil {
-		return err.Error
+	result := DB.Where(User{Username: user.Username}).First(user)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return errors.New("没有找到用户！")
+		}
+		return result.Error
 	}
 	return nil
 }
@@ -479,6 +590,20 @@ func increaseUserQuota(id int, quota int) (err error) {
 		// 直接删除缓存键，下次读取时会重新写入最新值
 		redis.RedisDel(fmt.Sprintf(UserQuotaCacheKey, id))
 	}
+	return nil
+}
+
+// IncreaseUserQuotaWithTx 在指定事务中增加用户配额
+func IncreaseUserQuotaWithTx(tx *gorm.DB, id int, quota int) (err error) {
+	if quota < 0 {
+		return errors.New("quota 不能为负数！")
+	}
+	// 注意：在事务中不支持批量更新，直接执行数据库操作
+	err = tx.Model(&User{}).Where("id = ?", id).Update("quota", gorm.Expr("quota + ?", quota)).Error
+	if err != nil {
+		return err
+	}
+	// 注意：在事务中不刷新缓存，等事务提交后再刷新
 	return nil
 }
 
@@ -673,4 +798,90 @@ func ProcessInviterReward(userId int, rechargeQuota int, ip string) error {
 	RecordLog(user.InviterId, LogTypeSystem, logMessage)
 
 	return nil
+}
+
+// WebAuthn 相关方法，实现 webauthn.User 接口
+func (user *User) WebAuthnID() []byte {
+	return []byte(fmt.Sprintf("%d", user.Id))
+}
+
+func (user *User) WebAuthnName() string {
+	return user.Username
+}
+
+func (user *User) WebAuthnDisplayName() string {
+	if user.DisplayName != "" {
+		return user.DisplayName
+	}
+	return user.Username
+}
+
+func (user *User) WebAuthnIcon() string {
+	return user.AvatarUrl
+}
+
+func (user *User) WebAuthnCredentials() []webauthn.Credential {
+	credentials := GetUserWebAuthnCredentials(user.Id)
+	return credentials
+}
+
+// WebAuthnCredential 表示WebAuthn凭据
+type WebAuthnCredential struct {
+	Id              int    `json:"id" gorm:"primaryKey"`
+	UserId          int    `json:"user_id" gorm:"index"`
+	CredentialId    []byte `json:"credential_id" gorm:"unique;size:255"`
+	PublicKey       []byte `json:"public_key"`
+	AttestationType string `json:"attestation_type"`
+	Alias           string `json:"alias" gorm:"type:varchar(255);default:''"`
+	// Persist essential authenticator state and flags used during login validation
+	BackupEligible bool                   `json:"backup_eligible" gorm:"column:backup_eligible;default:false"`
+	BackupState    bool                   `json:"backup_state" gorm:"column:backup_state;default:false"`
+	Authenticator  webauthn.Authenticator `json:"authenticator" gorm:"embedded"`
+	CreatedTime    int64                  `json:"created_time"`
+}
+
+func (WebAuthnCredential) TableName() string {
+	return "webauthn_credentials"
+}
+
+// 获取用户的WebAuthn凭据
+func GetUserWebAuthnCredentials(userId int) []webauthn.Credential {
+	var credentials []WebAuthnCredential
+	DB.Where("user_id = ?", userId).Find(&credentials)
+
+	var webauthnCredentials []webauthn.Credential
+	for _, cred := range credentials {
+		webauthnCredentials = append(webauthnCredentials, webauthn.Credential{
+			ID:              cred.CredentialId,
+			PublicKey:       cred.PublicKey,
+			AttestationType: cred.AttestationType,
+			Authenticator:   cred.Authenticator,
+			Flags: webauthn.CredentialFlags{
+				UserPresent:    false, // will be updated by library during validation
+				UserVerified:   false, // will be updated by library during validation
+				BackupEligible: cred.BackupEligible,
+				BackupState:    cred.BackupState,
+			},
+		})
+	}
+	return webauthnCredentials
+}
+
+// 保存WebAuthn凭据
+func SaveWebAuthnCredential(userId int, credential *webauthn.Credential, alias string) error {
+	if alias == "" {
+		alias = time.Now().Format("20060102150405")
+	}
+	webauthnCred := WebAuthnCredential{
+		UserId:          userId,
+		CredentialId:    credential.ID,
+		PublicKey:       credential.PublicKey,
+		AttestationType: credential.AttestationType,
+		Alias:           alias,
+		BackupEligible:  credential.Flags.BackupEligible,
+		BackupState:     credential.Flags.BackupState,
+		Authenticator:   credential.Authenticator,
+		CreatedTime:     time.Now().Unix(),
+	}
+	return DB.Create(&webauthnCred).Error
 }

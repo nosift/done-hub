@@ -191,6 +191,7 @@
     "channel": "Channel",
     "channelList": "Channel List",
     "channelName": "Channel Name",
+    "channelApiAddress": "Channel API Address",
     "channelTags": "Channel Tags",
     "channelType": "Channel Type",
     "deleteDisabledChannels": "Delete Disabled Channels",
@@ -243,7 +244,20 @@
     "pleaseSelectChannelsForUserGroup": "Please select at least one channel",
     "addingUserGroup": "Adding...",
     "addUserGroupToChannels": "Add user group to {{count}} channels",
-    "batchAddUserGroupSuccess": "Successfully added user group \"{{group}}\" to {{count}} channels"
+    "batchAddUserGroupSuccess": "Successfully added user group \"{{group}}\" to {{count}} channels",
+    "batchAddModel": "Batch Add Model",
+    "batchAddModelTip": "Select channels and add models. Supports inputting multiple models. If a channel already has a certain model, that model will be skipped.",
+    "selectModelToAdd": "Select or input models to add",
+    "pleaseSelectModel": "Please select or input models",
+    "pleaseSelectChannelsForModel": "Please select at least one channel",
+    "channelAlreadyHasModel": "(Already has some models)",
+    "currentModels": "Current models",
+    "noModels": "None",
+    "addingModel": "Adding...",
+    "addModelToChannels": "Add models to {{count}} channels",
+    "batchAddModelSuccess": "Successfully added models \"{{model}}\" to {{count}} channels",
+    "modelInputTip": "Supports multiple models, separated by commas",
+    "loadingChannels": "Loading channels..."
   },
   "channel_row": {
     "auto": "automatic",
@@ -472,6 +486,11 @@
     "quotaLabel": "Quota",
     "refreshButton": "Refresh/Clear Search",
     "searchButton": "Search",
+    "searching": "Searching...",
+    "exportButton": "Export CSV",
+    "exporting": "Exporting...",
+    "exportSuccess": "Export successful",
+    "exportError": "Export failed",
     "searchLogsInfo": "Please check the recharge records and invitation records in the logs. For recharge records, select the type [Recharge] in the log; for invitation records, select [System] in the log.",
     "timeLabel": "Time",
     "title": "Logs",
@@ -546,7 +565,8 @@
     "usernameRequired": "Username/Email is required",
     "wechatLoginInfo": "Please use WeChat to scan the QR code to follow the official account and enter the \"verification code\" to obtain the verification code (valid within three minutes)",
     "wechatVerificationCodeLogin": "WeChat verification code login",
-    "useLinuxDoLogin": "Log in with LINUX DO"
+    "useLinuxDoLogin": "Log in with LINUX DO",
+    "loggingIn": "Logging in..."
   },
   "midjourneyPage": {
     "channel": "Channel",
@@ -775,8 +795,16 @@
     "usernameMinLength": "Username must be at least 3 characters long",
     "usernameRequired": "Username cannot be empty",
     "wechatBindSuccess": "WeChat account successfully bound!",
+    "bindLinuxDoAccount": "Bind LINUX DO Account",
     "yourTokenIs": "Your access token is:",
-    "bindLinuxDoAccount": "Bind LINUX DO Account"
+    "registerWebauthn": "Register WebAuthn Credential",
+    "webauthnManagement": "WebAuthn Credential Management",
+    "webauthnDescription": "WebAuthn provides passwordless authentication, allowing you to log in using biometric methods like fingerprints, Face ID, or security keys.",
+    "registeredCredentials": "Registered Credentials",
+    "alias": "Alias:",
+    "credentialId": "Credential ID:",
+    "registerTime": "Register Time:",
+    "delete": "Delete"
   },
   "redemption": "Redemption",
   "redemptionPage": {
@@ -818,7 +846,9 @@
     "usernameRequired": "Username is required",
     "validEmailRequired": "Must be a valid email address",
     "verificationCodeRequired": "Verification code is required",
-    "verificationInfo": "Please try again in a few seconds, Turnstile is checking the user environment!"
+    "verificationInfo": "Please try again in a few seconds, Turnstile is checking the user environment!",
+    "registering": "Registering...",
+    "inviteCodeRequired": "Invite code is required"
   },
   "registerPage": {
     "alreadyHaveAccount": "Already have an account? Click to login"
@@ -838,7 +868,7 @@
   "setting_index": {
     "operationSettings": {
       "chatLinkSettings": {
-        "info": "Configure chat links, which take effect in the chat of the token and in the chat of the Playground on the homepage. <br />In the link, &#123;key&#125; can replace the user's token, and &#123;server&#125; can replace the server address. For example: {'https://chat.oneapi.pro/#/?settings={\"key\":\"sk-{key}\",\"url\":\"{server}\"}'}<br />If not configured, the following 4 links will be configured by default:<br />ChatGPT Next ： {'https://chat.oneapi.pro/#/?settings={\"key\":\"{key}\",\"url\":\"{server}\"}'}<br />chatgpt-web-midjourney-proxy ： {'https://vercel.ddaiai.com/#/?settings={\"key\":\"{key}\",\"url\":\"{server}\"}'}<br />AMA ： {'ama://set-api-key?server={server}&key={key}'}<br />opencat ： {'opencat://team/join?domain={server}&token={key}'}<br />Sorting rules: The larger the value, the higher the ranking, and the same value is sorted according to the configuration order",
+        "info": "Configure chat links that take effect for chat in tokens and chat in Playground on the homepage. <br />In the links, you can use {key} to replace the user's token, {server} to replace the server address, and base64<[xxxxxx]> for base64 encoding. For example: {'https://chat.oneapi.pro/#/?settings={\"key\":\"sk-{key}\",\"url\":\"{server}\"}'}<br />If not configured, the following 4 links will be configured by default:<br />ChatGPT Next: {'https://chat.oneapi.pro/#/?settings={\"key\":\"{key}\",\"url\":\"{server}\"}'}<br />chatgpt-web-midjourney-proxy: {'https://vercel.ddaiai.com/#/?settings={\"key\":\"{key}\",\"url\":\"{server}\"}'}<br />AMA: {'ama://set-api-key?server={server}&key={key}'}<br />opencat: {'opencat://team/join?domain={server}&token={key}'}<br />Sort order: Higher values first, if values are equal then by configuration order",
         "save": "Save Chat Link Settings",
         "title": "Chat Link Settings"
       },
@@ -874,7 +904,9 @@
         },
         "emptyResponseBilling": "Empty Response Billing",
         "unifiedRequestResponseModel": "Unified Request Response Model",
-        "unifiedRequestResponseModelTooltip": "When model mapping exists, the model value in the response will be the requested model value instead of the actual called model name"
+        "unifiedRequestResponseModelTooltip": "When model mapping exists, the model value in the response will be the requested model value instead of the actual called model name",
+        "modelNameCaseInsensitive": "Model Name Case Insensitive",
+        "modelNameCaseInsensitiveTooltip": "When enabled, model matching will ignore case sensitivity, e.g., GPT-4, gpt-4, Gpt-4 will all match the same model"
       },
       "logSettings": {
         "clearLogs": "Clear Historical Logs",
@@ -1089,11 +1121,17 @@
         "gitHubOAuth": "Allow Login & Register via GitHub",
         "gitHubOldIdClose": "Disable logging in with old GitHub ID.",
         "larkAuth": "Allow Login & Register via Lark",
+        "linuxDoOAuth": "Allow Login & Register via LINUX DO",
+        "linuxDoOAuthTrustLevel": "Enable LINUX DO Trust Level Restriction",
+        "linuxDoOAuthDynamicTrustLevel": "LINUX DO Dynamic Restriction (disable to exempt existing users)",
         "oidcAuth": "Enable login & registration via OIDC account",
         "passwordLogin": "Allow Password Login",
         "passwordRegister": "Allow Password Register",
         "registerEnabled": "Allow New User Registration (Disabling this will prevent any new registrations)",
         "title": "Configure Login and Register",
+        "generalSettings": "General Settings",
+        "passwordSettings": "Password Login",
+        "thirdPartyLogin": "Third-Party Login",
         "turnstileCheck": "Enable Turnstile User Verification",
         "weChatAuth": "Allow Login & Register via WeChat"
       },
@@ -1263,8 +1301,11 @@
     "quotaNote": "Note: The token's quota is only used to limit the maximum usage of the token itself, actual usage is subject to the remaining quota of the account.",
     "refresh": "Refresh",
     "remainingQuota": "Remaining Quota",
-    "replaceApiAddress1": "Replace the OpenAI API base address https://api.openai.com with",
-    "replaceApiAddress2": ", and you can use the key below.",
+    "apiUsageTip": "API Usage: Copy the key below and replace the corresponding API base address with the following",
+    "openaiApi": "OpenAI",
+    "geminiApi": "Gemini",
+    "claudeApi": "Claude",
+    "apiAddress": "API Address",
     "searchTokenName": "Search for token name...",
     "status": "Status",
     "submit": "Submit",
@@ -1272,13 +1313,26 @@
     "unlimited": "Unlimited",
     "unlimitedQuota": "Unlimited Quota",
     "usedQuota": "Used Quota",
-    "userGroup": "group",
+    "selectGroup": "Select group",
+    "selectGroupInfo": "Select the channel group you want to use here. When the channel group is unavailable, backup channels will be used",
+    "userGroup": "Group",
+    "userBackupGroup": "Backup group",
     "apiRate": "",
     "apiRateTip": "",
     "heartbeat": "Heartbeat setting (Experimental)",
     "heartbeatTip": "Heartbeat setting means that when you make a stream request, if there is no response for a long time, your client may disconnect due to the timeout mechanism. To prevent this, you can enable the heartbeat setting. When the request exceeds the start time you set and there is no response, we will send a heartbeat request every 5 seconds to keep the connection. Note: If you are using a relay program, please do not enable this setting, it may cause unexpected issues.",
     "heartbeatTimeout": "Heartbeat start time (unit: seconds)",
-    "heartbeatTimeoutHelperText": "Minimum value: 30 seconds, maximum value: 90 seconds"
+    "heartbeatTimeoutHelperText": "Minimum value: 30 seconds, maximum value: 90 seconds",
+    "limits": "Limits",
+    "limits_info": "After setting, you can impose restrictions on the token.",
+    "limits_models_switch": "Enable Models Limits",
+    "limit_models": "Model Limits",
+    "limit_models_info": "Select the models that this token is allowed to use. If no models are selected, all models are permitted.",
+    "limits_ip_whitelist": "IP Whitelist",
+    "limits_ip_whitelist_info": "Restrict token access to specific IP addresses or ranges",
+    "limits_ip_whitelist_switch": "Enable IP Whitelist",
+    "limits_ip_whitelist_input": "IP Addresses",
+    "limits_ip_whitelist_helper": "Enter one IP address or CIDR range per line (e.g., 192.168.1.1 or 10.0.0.0/8)"
   },
   "topup": "Top-up",
   "topupCard": {
@@ -1344,6 +1398,8 @@
     "cancelAdmin": "Cancel administrator",
     "createUser": "Create User",
     "creationTime": "Creation Time",
+    "lastLoginTime": "Last Login Time",
+    "lastLoginIP": "Last Login IP",
     "del": "delete users",
     "delTip": "Whether to delete the user",
     "displayName": "Display Name",

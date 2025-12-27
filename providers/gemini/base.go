@@ -2,6 +2,7 @@ package gemini
 
 import (
 	"bytes"
+	"done-hub/common/logger"
 	"done-hub/common/requester"
 	"done-hub/model"
 	"done-hub/providers/base"
@@ -10,8 +11,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"regexp"
 	"strings"
+	"time"
 )
 
 type GeminiProviderFactory struct{}
@@ -70,6 +74,12 @@ func getConfig(version string) base.ProviderConfig {
 	}
 }
 
+// 正则表达式匹配 "Please retry in Xs" 格式的重试时间
+var retryInRegex = regexp.MustCompile(`Please retry in ([0-9.]+)s`)
+
+// 正则表达式匹配每日配额限制（Quota exceeded + per_day + limit: 0）
+var perDayQuotaRegex = regexp.MustCompile(`Quota exceeded for metric:.*per_day.*limit: 0`)
+
 // 请求错误处理
 func RequestErrorHandle(key string) requester.HttpErrorHandler {
 	return func(resp *http.Response) *types.OpenAIError {
@@ -81,15 +91,58 @@ func RequestErrorHandle(key string) requester.HttpErrorHandler {
 
 		geminiError := &GeminiErrorResponse{}
 		if err := json.NewDecoder(resp.Body).Decode(geminiError); err == nil {
-			return errorHandle(geminiError, key)
+			openAIError := errorHandle(geminiError, key)
+
+			// 解析 429 错误的冻结时间
+			if openAIError != nil && geminiError.ErrorInfo != nil && geminiError.ErrorInfo.Code == http.StatusTooManyRequests {
+				parseRateLimitResetTime(openAIError, geminiError.ErrorInfo)
+			}
+
+			return openAIError
 		} else {
 			geminiErrors := &GeminiErrors{}
 			if err := json.Unmarshal(bodyBytes, geminiErrors); err == nil {
-				return errorHandle(geminiErrors.Error(), key)
+				geminiError := geminiErrors.Error()
+				openAIError := errorHandle(geminiError, key)
+
+				// 解析 429 错误的冻结时间
+				if openAIError != nil && geminiError.ErrorInfo.Code == http.StatusTooManyRequests {
+					parseRateLimitResetTime(openAIError, geminiError.ErrorInfo)
+				}
+
+				return openAIError
 			}
 		}
 
 		return nil
+	}
+}
+
+// parseRateLimitResetTime 从错误消息中解析冻结时间
+func parseRateLimitResetTime(openAIError *types.OpenAIError, errorInfo *GeminiError) {
+	// 方式1: 匹配 "Please retry in Xs" 格式
+	if matches := retryInRegex.FindStringSubmatch(errorInfo.Message); len(matches) == 2 {
+		if duration, err := time.ParseDuration(matches[1] + "s"); err == nil {
+			// 向上取整，确保冻结时间足够
+			resetTimestamp := time.Now().Unix() + int64(math.Ceil(duration.Seconds()))
+			openAIError.RateLimitResetAt = resetTimestamp
+			logger.SysLog(fmt.Sprintf("[Gemini] Rate limit detected, retry in: %ss, reset at: %s",
+				matches[1], time.Unix(resetTimestamp, 0).Format(time.RFC3339)))
+			return
+		}
+	}
+
+	// 方式2: 每日配额限制，冻结到太平洋时间次日 0:05（冗余5分钟）
+	if perDayQuotaRegex.MatchString(errorInfo.Message) {
+		pst, err := time.LoadLocation("America/Los_Angeles")
+		if err != nil {
+			return
+		}
+		now := time.Now().In(pst)
+		nextReset := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 5, 0, 0, pst)
+		openAIError.RateLimitResetAt = nextReset.Unix()
+		logger.SysLog(fmt.Sprintf("[Gemini] Daily quota exceeded, reset at: %s (Pacific Time)",
+			nextReset.Format(time.RFC3339)))
 	}
 }
 
@@ -114,7 +167,55 @@ func cleaningError(errorInfo *GeminiError, key string) {
 		return
 	}
 	message := strings.Replace(errorInfo.Message, key, "xxxxx", 1)
+
+	// 截断 base64 数据，避免日志过长
+	message = truncateBase64InMessage(message)
+
 	errorInfo.Message = message
+}
+
+// truncateBase64InMessage 截断错误消息中的 base64 数据
+func truncateBase64InMessage(message string) string {
+	const maxBase64Length = 50 // 只保留前50个字符
+
+	result := message
+	offset := 0
+
+	// 循环处理所有的 base64 数据
+	for {
+		// 在当前偏移位置查找下一个 base64 数据
+		idx := strings.Index(result[offset:], ";base64,")
+		if idx == -1 {
+			break
+		}
+
+		// 计算实际位置
+		actualIdx := offset + idx
+		start := actualIdx + 8 // ";base64," 的长度
+
+		// 查找 base64 数据的结束位置（通常是引号、空格或其他分隔符）
+		end := start
+		for end < len(result) && isBase64Char(result[end]) {
+			end++
+		}
+
+		if end-start > maxBase64Length {
+			// 截断 base64 数据
+			result = result[:start+maxBase64Length] + "...[truncated]" + result[end:]
+			// 更新偏移位置，继续查找下一个
+			offset = start + maxBase64Length + len("...[truncated]")
+		} else {
+			// 如果这个 base64 数据不需要截断，移动到下一个位置
+			offset = end
+		}
+	}
+
+	return result
+}
+
+// isBase64Char 检查字符是否是 base64 字符
+func isBase64Char(c byte) bool {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '+' || c == '/' || c == '='
 }
 
 func (p *GeminiProvider) GetFullRequestURL(requestURL string, modelName string) string {

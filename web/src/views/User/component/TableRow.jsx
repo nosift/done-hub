@@ -3,11 +3,6 @@ import { useState } from 'react'
 
 import {
   Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogContentText,
-  DialogTitle,
   IconButton,
   InputAdornment,
   MenuItem,
@@ -26,6 +21,7 @@ import { Icon } from '@iconify/react'
 import { useTheme } from '@mui/material/styles'
 import { useTranslation } from 'react-i18next'
 import ConfirmDialog from 'ui-component/confirm-dialog'
+import LinuxDoIcon from 'assets/images/icons/LinuxDoIcon'
 
 function renderRole(t, role) {
   switch (role) {
@@ -140,12 +136,23 @@ export default function UsersTableRow({ item, manageUser, handleOpenModal, setMo
             <Tooltip title={item.github_id ? item.github_id : t('profilePage.notBound')} placement="top">
               <Icon icon="ri:github-fill" color={item.github_id ? theme.palette.grey[900] : theme.palette.grey[400]}/>
             </Tooltip>
+            <Tooltip title={item.linuxdo_username ? item.linuxdo_username : '未绑定'} placement="top">
+              <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                <LinuxDoIcon
+                  size={16}
+                  color={item.linuxdo_username ? '#ffb003' : theme.palette.grey[400]}
+                  style={{ opacity: item.linuxdo_username ? 1 : 0.6 }}
+                />
+              </span>
+            </Tooltip>
             <Tooltip title={item.email ? item.email : t('profilePage.notBound')} placement="top">
               <Icon icon="ri:mail-fill" color={item.email ? theme.palette.grey[900] : theme.palette.grey[400]}/>
             </Tooltip>
           </Stack>
         </TableCell>
         <TableCell>{item.created_time === 0 ? t('common.unknown') : timestamp2string(item.created_time)}</TableCell>
+        <TableCell>{item.last_login_time === 0 ? t('common.unknown') : timestamp2string(item.last_login_time)}</TableCell>
+        <TableCell>{item.last_login_ip === '' || item.last_login_time === undefined ? t('common.unknown') : item.last_login_ip}</TableCell>
         <TableCell>
           {' '}
           <TableSwitch id={`switch-${item.id}`} checked={statusSwitch === 1} onChange={handleStatus}/>
@@ -204,20 +211,21 @@ export default function UsersTableRow({ item, manageUser, handleOpenModal, setMo
         </MenuItem>
       </Popover>
 
-      <Dialog open={openDelete} onClose={handleDeleteClose}>
-        <DialogTitle>{t('userPage.del')}</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            {t('userPage.delTip')} {item.name}？
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleDeleteClose}>{t('common.close')}</Button>
-          <Button onClick={handleDelete} sx={{ color: 'error.main' }} autoFocus>
+      <ConfirmDialog
+        open={openDelete}
+        onClose={handleDeleteClose}
+        title={t('common.delete')}
+        content={t('common.deleteConfirm', { title: `用户 "${item.username}"` })}
+        action={
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleDelete}
+          >
             {t('common.delete')}
           </Button>
-        </DialogActions>
-      </Dialog>
+        }
+      />
 
       <ConfirmDialog
         open={openChangeQuota}

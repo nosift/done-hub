@@ -72,8 +72,16 @@ func (s *PaymentService) HandleCallback(c *gin.Context, gatewayConfig string) (*
 }
 
 func (s *PaymentService) getNotifyURL() string {
-	notifyDomain := s.Payment.NotifyDomain
-	if notifyDomain == "" {
+	var notifyDomain string
+
+	// 优先使用全局支付回调地址配置
+	if config.PaymentCallbackAddress != "" {
+		notifyDomain = config.PaymentCallbackAddress
+	} else if s.Payment.NotifyDomain != "" {
+		// 其次使用支付网关的回调域名配置
+		notifyDomain = s.Payment.NotifyDomain
+	} else {
+		// 最后使用服务器地址
 		notifyDomain = config.ServerAddress
 	}
 

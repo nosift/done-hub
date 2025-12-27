@@ -5,8 +5,10 @@ import (
 	"done-hub/common"
 	"done-hub/common/config"
 	"done-hub/common/logger"
+	"done-hub/common/model_utils"
 	"done-hub/common/requester"
 	"done-hub/common/utils"
+	"done-hub/providers/antigravity"
 	"done-hub/providers/claude"
 	"done-hub/providers/gemini"
 	"done-hub/providers/openai"
@@ -15,7 +17,6 @@ import (
 	"done-hub/safty"
 	"done-hub/types"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -25,7 +26,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var AllowChannelType = []int{config.ChannelTypeAnthropic, config.ChannelTypeVertexAI, config.ChannelTypeBedrock, config.ChannelTypeCustom, config.ChannelTypeGemini}
+var AllowChannelType = []int{config.ChannelTypeAnthropic, config.ChannelTypeVertexAI, config.ChannelTypeBedrock, config.ChannelTypeCustom, config.ChannelTypeGemini, config.ChannelTypeGeminiCli, config.ChannelTypeClaudeCode, config.ChannelTypeCodex, config.ChannelTypeAntigravity}
 
 type relayClaudeOnly struct {
 	relayBase
@@ -52,12 +53,6 @@ func (r *relayClaudeOnly) setRequest() error {
 	r.setOriginalModel(r.claudeRequest.Model)
 	// 设置原始模型到 Context，用于统一请求响应模型功能
 	r.c.Set("original_model", r.claudeRequest.Model)
-
-	// 检测背景任务（参考demo逻辑）
-	if r.isBackgroundTask() {
-
-		return r.handleBackgroundTaskInSetRequest()
-	}
 
 	// 保持原始的流式/非流式状态
 
@@ -89,13 +84,18 @@ func (r *relayClaudeOnly) send() (err *types.OpenAIErrorWithStatusCode, done boo
 
 	// 检查是否为 VertexAI 渠道且模型包含 gemini，如果是则使用 Gemini->Claude 转换逻辑
 	if channelType == config.ChannelTypeVertexAI &&
-		(strings.Contains(strings.ToLower(r.claudeRequest.Model), "gemini") || strings.Contains(strings.ToLower(r.claudeRequest.Model), "claude-3-5-haiku-20241022")) {
+		(model_utils.ContainsCaseInsensitive(r.claudeRequest.Model, "gemini") || model_utils.ContainsCaseInsensitive(r.claudeRequest.Model, "claude-3-5-haiku-20241022")) {
 		return r.sendVertexAIGeminiWithClaudeFormat()
 	}
 
 	// 检查是否为 Gemini 渠道，如果是则使用 Gemini->Claude 转换逻辑
 	if channelType == config.ChannelTypeGemini {
 		return r.sendGeminiWithClaudeFormat()
+	}
+
+	// 检查是否为 Antigravity 渠道，如果是则使用 Antigravity->Claude 转换逻辑
+	if channelType == config.ChannelTypeAntigravity {
+		return r.sendAntigravityWithClaudeFormat()
 	}
 
 	chatProvider, ok := r.provider.(claude.ClaudeChatInterface)
@@ -333,18 +333,41 @@ func (r *relayClaudeOnly) sendCustomChannelWithClaudeFormat() (err *types.OpenAI
 	return err, false
 }
 
+// Schema清理模式
+type schemaCleanMode int
+
+const (
+	schemaCleanNone     schemaCleanMode = iota // 不清理
+	schemaCleanFull                            // 完全清理（移除不支持字段 + 转换 type 数组为 nullable）
+	schemaCleanMetaOnly                        // 仅清理元字段（移除 $schema 等，但保留 type 数组格式）
+)
+
 // convertClaudeToOpenAI 将Claude请求转换为OpenAI格式
 func (r *relayClaudeOnly) convertClaudeToOpenAI() (*types.ChatCompletionRequest, *types.OpenAIErrorWithStatusCode) {
-	return r.convertClaudeToOpenAIWithOptions(true) // 默认进行schema清理
+	return r.convertClaudeToOpenAIWithMode(schemaCleanFull) // 默认完全清理
 }
 
 // convertClaudeToOpenAIForVertexAI 专门为VertexAI渠道转换，不进行schema清理
 func (r *relayClaudeOnly) convertClaudeToOpenAIForVertexAI() (*types.ChatCompletionRequest, *types.OpenAIErrorWithStatusCode) {
-	return r.convertClaudeToOpenAIWithOptions(false) // 不进行schema清理
+	return r.convertClaudeToOpenAIWithMode(schemaCleanNone) // 不进行schema清理
 }
 
-// convertClaudeToOpenAIWithOptions 将Claude请求转换为OpenAI格式，支持选项控制
+// convertClaudeToOpenAIForAntigravity 专门为Antigravity渠道转换
+// 移除 $schema 等元字段，但保留 type 数组格式（兼容 Claude API）
+func (r *relayClaudeOnly) convertClaudeToOpenAIForAntigravity() (*types.ChatCompletionRequest, *types.OpenAIErrorWithStatusCode) {
+	return r.convertClaudeToOpenAIWithMode(schemaCleanMetaOnly)
+}
+
+// convertClaudeToOpenAIWithOptions 向后兼容的包装函数
 func (r *relayClaudeOnly) convertClaudeToOpenAIWithOptions(cleanSchema bool) (*types.ChatCompletionRequest, *types.OpenAIErrorWithStatusCode) {
+	if cleanSchema {
+		return r.convertClaudeToOpenAIWithMode(schemaCleanFull)
+	}
+	return r.convertClaudeToOpenAIWithMode(schemaCleanNone)
+}
+
+// convertClaudeToOpenAIWithMode 将Claude请求转换为OpenAI格式，支持多种清理模式
+func (r *relayClaudeOnly) convertClaudeToOpenAIWithMode(cleanMode schemaCleanMode) (*types.ChatCompletionRequest, *types.OpenAIErrorWithStatusCode) {
 	openaiRequest := &types.ChatCompletionRequest{
 		Model:       r.claudeRequest.Model,
 		Messages:    make([]types.ChatCompletionMessage, 0),
@@ -358,6 +381,48 @@ func (r *relayClaudeOnly) convertClaudeToOpenAIWithOptions(cleanSchema bool) (*t
 	if r.claudeRequest.StopSequences != nil {
 		openaiRequest.Stop = r.claudeRequest.StopSequences
 	}
+
+	// 处理 Thinking 参数 - 将 Claude 的 thinking 转换为 OpenAI 的 Reasoning
+	if r.claudeRequest.Thinking != nil && r.claudeRequest.Thinking.Type == "enabled" {
+		budgetTokens := r.claudeRequest.Thinking.BudgetTokens
+		maxTokens := r.claudeRequest.MaxTokens
+
+		// 安全校验1: 检查 budget >= max_tokens，自动下调
+		if budgetTokens >= maxTokens {
+			adjustedBudget := maxTokens - 1
+			if adjustedBudget <= 0 {
+				// 无法下调到正数，跳过 thinking 配置
+				goto skipThinking
+			}
+			budgetTokens = adjustedBudget
+		}
+
+		// 安全校验2: 检查历史 assistant 消息是否以 thinking 开头
+		if len(r.claudeRequest.Messages) > 0 {
+			// 找到最后一条 assistant 消息
+			for i := len(r.claudeRequest.Messages) - 1; i >= 0; i-- {
+				msg := r.claudeRequest.Messages[i]
+				if msg.Role == "assistant" {
+					// 检查内容是否以 thinking/redacted_thinking 开头
+					if content, ok := msg.Content.([]interface{}); ok && len(content) > 0 {
+						if firstBlock, ok := content[0].(map[string]interface{}); ok {
+							blockType, _ := firstBlock["type"].(string)
+							if blockType != "thinking" && blockType != "redacted_thinking" {
+								// 历史消息不以 thinking 开头，跳过 thinking 配置
+								goto skipThinking
+							}
+						}
+					}
+					break
+				}
+			}
+		}
+
+		openaiRequest.Reasoning = &types.ChatReasoning{
+			MaxTokens: budgetTokens,
+		}
+	}
+skipThinking:
 
 	// 处理系统消息
 	if r.claudeRequest.System != nil {
@@ -405,9 +470,10 @@ func (r *relayClaudeOnly) convertClaudeToOpenAIWithOptions(cleanSchema bool) (*t
 		case []interface{}:
 			// 处理复杂内容
 			if msg.Role == "user" {
-				// 用户消息：先处理 tool_result，再处理 text
+				// 用户消息：处理 tool_result, text 和 image
 				toolParts := make([]map[string]interface{}, 0)
 				textParts := make([]map[string]interface{}, 0)
+				imageParts := make([]map[string]interface{}, 0)
 
 				for _, part := range content {
 					if partMap, ok := part.(map[string]interface{}); ok {
@@ -421,6 +487,13 @@ func (r *relayClaudeOnly) convertClaudeToOpenAIWithOptions(cleanSchema bool) (*t
 						case "text":
 							if _, exists := partMap["text"].(string); exists {
 								textParts = append(textParts, partMap)
+							}
+						case "image":
+							// Claude 图片格式: {type: "image", source: {type: "base64", media_type, data}}
+							if source, exists := partMap["source"].(map[string]interface{}); exists {
+								if sourceType, _ := source["type"].(string); sourceType == "base64" {
+									imageParts = append(imageParts, partMap)
+								}
 							}
 						}
 					}
@@ -451,30 +524,52 @@ func (r *relayClaudeOnly) convertClaudeToOpenAIWithOptions(cleanSchema bool) (*t
 					openaiRequest.Messages = append(openaiRequest.Messages, toolResultMsg)
 				}
 
-				// 处理 text 部分 - 用户消息的 textParts 直接作为 content
-				if len(textParts) > 0 {
-					contentParts := make([]types.ChatMessagePart, 0)
-					for _, textPart := range textParts {
-						if text, ok := textPart["text"].(string); ok && text != "" {
-							contentParts = append(contentParts, types.ChatMessagePart{
-								Type: "text",
-								Text: text,
-							})
-						}
-					}
+				// 处理 text 和 image 部分 - 合并到同一个消息中
+				contentParts := make([]types.ChatMessagePart, 0)
 
-					// 只有当有有效内容时才创建消息
-					if len(contentParts) > 0 {
-						userMsg := types.ChatCompletionMessage{
-							Role:    types.ChatMessageRoleUser,
-							Content: contentParts,
-						}
-						openaiRequest.Messages = append(openaiRequest.Messages, userMsg)
+				// 添加文本部分
+				for _, textPart := range textParts {
+					if text, ok := textPart["text"].(string); ok && text != "" {
+						contentParts = append(contentParts, types.ChatMessagePart{
+							Type: "text",
+							Text: text,
+						})
 					}
 				}
 
+				// 添加图片部分 - 转换为 OpenAI 的 image_url 格式
+				for _, imagePart := range imageParts {
+					if source, exists := imagePart["source"].(map[string]interface{}); exists {
+						mediaType, _ := source["media_type"].(string)
+						data, _ := source["data"].(string)
+						if mediaType == "" {
+							mediaType = "image/png"
+						}
+						if data != "" {
+							// 构建 data URL: data:image/png;base64,xxxxx
+							dataURL := fmt.Sprintf("data:%s;base64,%s", mediaType, data)
+							contentParts = append(contentParts, types.ChatMessagePart{
+								Type: "image_url",
+								ImageURL: &types.ChatMessageImageURL{
+									URL: dataURL,
+								},
+							})
+						}
+					}
+				}
+
+				// 只有当有有效内容时才创建消息
+				if len(contentParts) > 0 {
+					userMsg := types.ChatCompletionMessage{
+						Role:    types.ChatMessageRoleUser,
+						Content: contentParts,
+					}
+					openaiRequest.Messages = append(openaiRequest.Messages, userMsg)
+				}
+
 			} else if msg.Role == "assistant" {
-				// 助手消息：分别处理 text 和 tool_use
+				// 助手消息：分别处理 thinking, text 和 tool_use
+				thinkingParts := make([]map[string]interface{}, 0)
 				textParts := make([]map[string]interface{}, 0)
 				toolCallParts := make([]map[string]interface{}, 0)
 
@@ -483,6 +578,11 @@ func (r *relayClaudeOnly) convertClaudeToOpenAIWithOptions(cleanSchema bool) (*t
 						partType, _ := partMap["type"].(string)
 
 						switch partType {
+						case "thinking", "redacted_thinking":
+							// thinking 块必须有 signature 才能转换
+							if signature, exists := partMap["signature"].(string); exists && signature != "" {
+								thinkingParts = append(thinkingParts, partMap)
+							}
 						case "text":
 							if _, exists := partMap["text"].(string); exists {
 								textParts = append(textParts, partMap)
@@ -495,16 +595,47 @@ func (r *relayClaudeOnly) convertClaudeToOpenAIWithOptions(cleanSchema bool) (*t
 					}
 				}
 
-				// 处理 text 部分 - 每个文本部分创建单独的助手消息
+				// 创建包含所有内容的 assistant 消息
+				contentParts := make([]types.ChatMessagePart, 0)
 
+				// 处理 thinking 部分 - 使用 ChatMessagePart 携带 thinking 信息
+				for _, thinkingPart := range thinkingParts {
+					partType, _ := thinkingPart["type"].(string)
+					signature, _ := thinkingPart["signature"].(string)
+					thinkingText := ""
+
+					// thinking 块的文本在 "thinking" 字段
+					// redacted_thinking 块的文本可能在 "thinking" 或 "data" 字段
+					if text, exists := thinkingPart["thinking"].(string); exists {
+						thinkingText = text
+					} else if data, exists := thinkingPart["data"].(string); exists {
+						thinkingText = data
+					}
+
+					contentParts = append(contentParts, types.ChatMessagePart{
+						Type:              partType, // "thinking" 或 "redacted_thinking"
+						Thinking:          thinkingText,
+						ThinkingSignature: signature,
+					})
+				}
+
+				// 处理 text 部分
 				for _, textPart := range textParts {
 					if text, ok := textPart["text"].(string); ok && text != "" {
-						assistantMsg := types.ChatCompletionMessage{
-							Role:    types.ChatMessageRoleAssistant,
-							Content: text,
-						}
-						openaiRequest.Messages = append(openaiRequest.Messages, assistantMsg)
+						contentParts = append(contentParts, types.ChatMessagePart{
+							Type: "text",
+							Text: text,
+						})
 					}
+				}
+
+				// 如果有 thinking 或 text 内容，创建消息
+				if len(contentParts) > 0 {
+					assistantMsg := types.ChatCompletionMessage{
+						Role:    types.ChatMessageRoleAssistant,
+						Content: contentParts,
+					}
+					openaiRequest.Messages = append(openaiRequest.Messages, assistantMsg)
 				}
 
 				// 处理 tool_use 部分 - 创建单独的助手消息，content 为 null
@@ -569,16 +700,35 @@ func (r *relayClaudeOnly) convertClaudeToOpenAIWithOptions(cleanSchema bool) (*t
 	// 处理工具定义
 	if len(r.claudeRequest.Tools) > 0 {
 		tools := make([]*types.ChatCompletionTool, 0)
-		// 转换为 OpenAI 格式
 
 		for _, tool := range r.claudeRequest.Tools {
+			// 过滤掉 Claude 内置工具类型（反重力等渠道不支持）
+			// 内置工具类型包括: computer_20241022, bash_20241022, text_editor_20241022 等
+			if tool.Type != "" && tool.Type != "custom" {
+				continue
+			}
+
+			// 确保有工具名称
+			if tool.Name == "" {
+				continue
+			}
+
 			var parameters interface{}
-			if cleanSchema {
-				// 为直接Gemini渠道清理schema中的不兼容字段
-				parameters = r.cleanSchemaForDirectGemini(tool.InputSchema)
+			if tool.InputSchema == nil {
+				// 如果 InputSchema 为空，设置默认空 schema
+				parameters = map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}
 			} else {
-				// VertexAI版本：直接使用原始的InputSchema，不进行清理
-				parameters = tool.InputSchema
+				switch cleanMode {
+				case schemaCleanFull:
+					// 完全清理：移除不支持字段 + 转换 type 数组为 nullable
+					parameters = r.cleanSchemaForDirectGemini(tool.InputSchema)
+				case schemaCleanMetaOnly:
+					// 仅清理元字段：移除 $schema 等，但保留 type 数组格式（兼容 Claude API）
+					parameters = r.cleanSchemaMetaOnly(tool.InputSchema)
+				default:
+					// 不清理：直接使用原始的 InputSchema
+					parameters = tool.InputSchema
+				}
 			}
 
 			// input_schema → parameters
@@ -614,51 +764,215 @@ func (r *relayClaudeOnly) cleanSchemaForDirectGemini(schema interface{}) interfa
 	return r.deepCleanSchema(schema)
 }
 
+// cleanSchemaMetaOnly 仅清理 JSON Schema 元字段，保留 type 数组格式
+func (r *relayClaudeOnly) cleanSchemaMetaOnly(schema interface{}) interface{} {
+	if schema == nil {
+		return schema
+	}
+	return r.deepCleanSchemaMetaOnly(schema)
+}
+
+// deepCleanSchemaMetaOnly 递归清理 schema 中 Antigravity 不支持的字段
+func (r *relayClaudeOnly) deepCleanSchemaMetaOnly(obj interface{}) interface{} {
+	switch v := obj.(type) {
+	case map[string]interface{}:
+		cleaned := make(map[string]interface{})
+		for key, value := range v {
+			if antigravityUnsupportedSchemaKeys[key] {
+				continue
+			}
+
+			// 处理 type: ["string", "null"] 转换为 type: "string" + nullable: true
+			// Antigravity 后端转发到 Gemini 时需要此转换
+			if key == "type" {
+				if typeArr, ok := value.([]interface{}); ok {
+					hasNull := false
+					var nonNullType string
+					for _, t := range typeArr {
+						if tStr, ok := t.(string); ok {
+							if tStr == "null" {
+								hasNull = true
+							} else if nonNullType == "" {
+								nonNullType = tStr
+							}
+						}
+					}
+					if nonNullType != "" {
+						cleaned["type"] = nonNullType
+					} else {
+						cleaned["type"] = "string"
+					}
+					if hasNull {
+						cleaned["nullable"] = true
+					}
+					continue
+				}
+			}
+
+			cleaned[key] = r.deepCleanSchemaMetaOnly(value)
+		}
+
+		// 补充缺失的 type: "object"
+		if _, hasProperties := cleaned["properties"]; hasProperties {
+			if _, hasType := cleaned["type"]; !hasType {
+				cleaned["type"] = "object"
+			}
+		}
+
+		return cleaned
+	case []interface{}:
+		cleaned := make([]interface{}, len(v))
+		for i, item := range v {
+			cleaned[i] = r.deepCleanSchemaMetaOnly(item)
+		}
+		return cleaned
+	default:
+		return obj
+	}
+}
+
+// antigravityUnsupportedSchemaKeys Antigravity 渠道不支持的 JSON Schema 字段
+var antigravityUnsupportedSchemaKeys = map[string]bool{
+	"$schema":              true,
+	"$id":                  true,
+	"$ref":                 true,
+	"$defs":                true,
+	"definitions":          true,
+	"title":                true,
+	"example":              true,
+	"examples":             true,
+	"readOnly":             true,
+	"writeOnly":            true,
+	"default":              true,
+	"exclusiveMaximum":     true,
+	"exclusiveMinimum":     true,
+	"oneOf":                true,
+	"anyOf":                true,
+	"allOf":                true,
+	"const":                true,
+	"additionalItems":      true,
+	"contains":             true,
+	"patternProperties":    true,
+	"dependencies":         true,
+	"propertyNames":        true,
+	"if":                   true,
+	"then":                 true,
+	"else":                 true,
+	"contentEncoding":      true,
+	"contentMediaType":     true,
+	"minLength":            true,
+	"maxLength":            true,
+	"minimum":              true,
+	"maximum":              true,
+	"minItems":             true,
+	"maxItems":             true,
+	"additionalProperties": true,
+	"pattern":              true,
+	"format":               true,
+	"deprecated":           true,
+}
+
+// geminiUnsupportedSchemaKeys Gemini API 不支持的 JSON Schema 字段
+var geminiUnsupportedSchemaKeys = map[string]bool{
+	"$schema":              true,
+	"$id":                  true,
+	"$ref":                 true,
+	"$defs":                true,
+	"definitions":          true,
+	"title":                true,
+	"example":              true,
+	"examples":             true,
+	"readOnly":             true,
+	"writeOnly":            true,
+	"default":              true,
+	"const":                true,
+	"exclusiveMaximum":     true,
+	"exclusiveMinimum":     true,
+	"oneOf":                true,
+	"anyOf":                true,
+	"allOf":                true,
+	"additionalItems":      true,
+	"contains":             true,
+	"additionalProperties": true,
+	"patternProperties":    true,
+	"dependencies":         true,
+	"propertyNames":        true,
+	"if":                   true,
+	"then":                 true,
+	"else":                 true,
+	"contentEncoding":      true,
+	"contentMediaType":     true,
+}
+
 // deepCleanSchema 递归清理schema中Gemini API不支持的字段
 func (r *relayClaudeOnly) deepCleanSchema(obj interface{}) interface{} {
 	switch v := obj.(type) {
 	case map[string]interface{}:
-		// 创建新的map避免修改原始数据
 		cleaned := make(map[string]interface{})
 		for key, value := range v {
-			// 跳过Gemini API不支持的字段
-			if key == "$schema" || key == "additionalProperties" {
+			if geminiUnsupportedSchemaKeys[key] {
 				continue
 			}
 
-			// 处理format字段的限制
+			// 处理 type: ["string", "null"] 转换为 type: "string" + nullable: true
+			if key == "type" {
+				if typeArr, ok := value.([]interface{}); ok {
+					hasNull := false
+					var nonNullType string
+					for _, t := range typeArr {
+						if tStr, ok := t.(string); ok {
+							if tStr == "null" {
+								hasNull = true
+							} else if nonNullType == "" {
+								nonNullType = tStr
+							}
+						}
+					}
+					if nonNullType != "" {
+						cleaned["type"] = nonNullType
+					} else {
+						cleaned["type"] = "string"
+					}
+					if hasNull {
+						cleaned["nullable"] = true
+					}
+					continue
+				}
+			}
+
+			// 处理 format 字段：Gemini 只支持 STRING 类型的 "enum" 和 "date-time"
 			if key == "format" {
-				// Gemini API只支持STRING类型的"enum"和"date-time"格式
 				if formatStr, ok := value.(string); ok {
-					// 检查当前对象是否为string类型
 					if typeVal, exists := v["type"]; exists && typeVal == "string" {
-						// 只保留Gemini支持的format
 						if formatStr == "enum" || formatStr == "date-time" {
 							cleaned[key] = value
 						}
-						// 其他format（如uri、url、email等）直接跳过
 						continue
 					} else {
-						// 非string类型，保留format字段
 						cleaned[key] = r.deepCleanSchema(value)
 						continue
 					}
 				}
 			}
 
-			// 递归清理嵌套对象
 			cleaned[key] = r.deepCleanSchema(value)
 		}
+
+		// 补充缺失的 type: "object"
+		if _, hasProperties := cleaned["properties"]; hasProperties {
+			if _, hasType := cleaned["type"]; !hasType {
+				cleaned["type"] = "object"
+			}
+		}
+
 		return cleaned
 	case []interface{}:
-		// 递归清理数组中的每个元素
 		cleaned := make([]interface{}, len(v))
 		for i, item := range v {
 			cleaned[i] = r.deepCleanSchema(item)
 		}
 		return cleaned
 	default:
-		// 基本类型直接返回
 		return obj
 	}
 }
@@ -1393,81 +1707,6 @@ func (r *relayClaudeOnly) writeSSEEventInternal(eventType string, data interface
 
 // handleBackgroundTaskInSetRequest 在setRequest阶段处理背景任务
 
-// isBackgroundTask 检测是否为背景任务（如话题分析）
-func (r *relayClaudeOnly) isBackgroundTask() bool {
-	if r.claudeRequest.System == nil {
-		return false
-	}
-
-	var systemTexts []string
-
-	switch sys := r.claudeRequest.System.(type) {
-	case string:
-		systemTexts = append(systemTexts, sys)
-	case []interface{}:
-		for _, item := range sys {
-			if itemMap, ok := item.(map[string]interface{}); ok {
-				if itemType, exists := itemMap["type"]; exists && itemType == "text" {
-					if text, textExists := itemMap["text"]; textExists {
-						if textStr, ok := text.(string); ok {
-							systemTexts = append(systemTexts, textStr)
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// 检查系统消息是否包含背景任务标识
-	for _, text := range systemTexts {
-		if strings.Contains(text, "Summarize this coding conversation") ||
-			strings.Contains(text, "write a 5-10 word title") ||
-			strings.Contains(text, "Analyze if this message indicates a new conversation topic") {
-			return true
-		}
-	}
-
-	return false
-}
-
-// handleBackgroundTaskInSetRequest 在setRequest阶段处理背景任务
-func (r *relayClaudeOnly) handleBackgroundTaskInSetRequest() error {
-
-	if r.claudeRequest.Stream {
-		// 流式响应：立即结束连接
-		r.setStreamHeaders()
-
-		// 发送最简单的完成事件并立即结束
-		messageId := fmt.Sprintf("msg_bg_%d", utils.GetTimestamp())
-		r.c.Writer.Write([]byte(`data: {"type":"message_start","message":{"id":"` + messageId + `","type":"message","role":"assistant","content":[],"model":"` + r.modelName + `","stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}` + "\n\n"))
-		r.c.Writer.Write([]byte(`data: {"type":"message_stop"}` + "\n\n"))
-
-		if flusher, ok := r.c.Writer.(http.Flusher); ok {
-			flusher.Flush()
-		}
-	} else {
-		// 非流式响应：立即返回空的Claude响应
-		r.c.Header("Content-Type", "application/json")
-		emptyResponse := &claude.ClaudeResponse{
-			Id:         fmt.Sprintf("msg_bg_%d", utils.GetTimestamp()),
-			Type:       "message",
-			Role:       "assistant",
-			Content:    []claude.ResContent{},
-			Model:      r.modelName,
-			StopReason: "end_turn",
-			Usage: claude.Usage{
-				InputTokens:  0,
-				OutputTokens: 0,
-			},
-		}
-
-		r.c.JSON(http.StatusOK, emptyResponse)
-	}
-
-	// 返回一个特殊错误，表示这是背景任务，已经处理完成
-	return errors.New("background_task_handled")
-}
-
 // sendVertexAIGeminiWithClaudeFormat handles VertexAI Gemini model Claude format requests
 // using new transformer architecture: Claude format -> unified format -> Gemini format -> VertexAI Gemini API -> Gemini response -> unified format -> Claude format
 func (r *relayClaudeOnly) sendVertexAIGeminiWithClaudeFormat() (err *types.OpenAIErrorWithStatusCode, done bool) {
@@ -1573,8 +1812,6 @@ func (r *relayClaudeOnly) convertOpenAIStreamToClaudeWithTransformer(stream requ
 			select {
 			case rawLine, ok := <-dataChan:
 				if !ok {
-					// 数据通道已关闭
-					logger.SysLog("流数据通道已关闭")
 					return
 				}
 				// 写入原始的 OpenAI 流数据
@@ -1582,8 +1819,6 @@ func (r *relayClaudeOnly) convertOpenAIStreamToClaudeWithTransformer(stream requ
 
 			case err, ok := <-errChan:
 				if !ok {
-					// 错误通道已关闭
-					logger.SysLog("流错误通道已关闭")
 					return
 				}
 				if err != nil {
@@ -1740,4 +1975,89 @@ func (r *relayClaudeOnly) sendGeminiWithClaudeFormat() (err *types.OpenAIErrorWi
 	}
 
 	return err, false
+}
+
+// sendAntigravityWithClaudeFormat handles Antigravity channel Claude format requests
+// Claude format -> OpenAI format -> Antigravity API -> OpenAI response -> Claude format
+func (r *relayClaudeOnly) sendAntigravityWithClaudeFormat() (err *types.OpenAIErrorWithStatusCode, done bool) {
+
+	// 使用 Antigravity 专用的 schema 清理模式
+	openaiRequest, err := r.convertClaudeToOpenAIForAntigravity()
+	if err != nil {
+		return err, true
+	}
+
+	// 内容审查
+	if safetyErr := r.performContentSafety(); safetyErr != nil {
+		err = safetyErr
+		done = true
+		return
+	}
+
+	openaiRequest.Model = r.modelName
+
+	// 获取 Antigravity provider
+	antigravityProvider, ok := r.provider.(*antigravity.AntigravityProvider)
+	if !ok {
+		err = common.StringErrorWrapperLocal("provider is not Antigravity provider", "channel_error", http.StatusServiceUnavailable)
+		done = true
+		return
+	}
+
+	// Claude 模型特殊处理：检查是否启用思考模式
+	enableThinking := r.isClaudeThinkingEnabled()
+
+	// 如果是 Claude 思考模型，需要删除 topP 参数
+	if enableThinking && model_utils.ContainsCaseInsensitive(r.modelName, "claude") {
+		openaiRequest.TopP = nil // 设置为 nil 表示不使用
+	}
+
+	if r.claudeRequest.Stream {
+		// 处理流式响应
+		var stream requester.StreamReaderInterface[string]
+		stream, err = antigravityProvider.CreateChatCompletionStream(openaiRequest)
+		if err != nil {
+			return err, true
+		}
+
+		if r.heartbeat != nil {
+			r.heartbeat.Stop()
+		}
+
+		// 使用 Transformer 架构处理流式响应
+		transformManager := transformer.CreateClaudeToVertexGeminiManager()
+		firstResponseTime := r.convertOpenAIStreamToClaudeWithTransformer(stream, transformManager)
+		r.SetFirstResponseTime(time.Unix(firstResponseTime, 0))
+	} else {
+		// 处理非流式响应
+		var openaiResponse *types.ChatCompletionResponse
+		openaiResponse, err = antigravityProvider.CreateChatCompletion(openaiRequest)
+		if err != nil {
+			return err, true
+		}
+
+		if r.heartbeat != nil {
+			r.heartbeat.Stop()
+		}
+
+		// 转换OpenAI响应为Claude格式
+		claudeResponse := r.convertOpenAIResponseToClaude(openaiResponse)
+		openErr := responseJsonClient(r.c, claudeResponse)
+
+		if openErr != nil {
+			// 对于响应发送错误（如客户端断开连接），不应该触发重试
+		}
+	}
+
+	return err, false
+}
+
+// isClaudeThinkingEnabled 检查是否启用了 Claude 思考模式
+func (r *relayClaudeOnly) isClaudeThinkingEnabled() bool {
+	if r.claudeRequest == nil || r.claudeRequest.Thinking == nil {
+		return false
+	}
+
+	// 检查 thinking 参数的 type 是否为 "enabled"
+	return r.claudeRequest.Thinking.Type == "enabled"
 }

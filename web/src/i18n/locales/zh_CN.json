@@ -74,7 +74,9 @@
     "resendCode": "重新发送({{countdown}})",
     "getCode": "获取验证码",
     "verificationInfo": "请稍后几秒重试，Turnstile 正在检查用户环境！",
-    "restSendEmail": "重置邮件发送成功，请检查邮箱！"
+    "restSendEmail": "重置邮件发送成功，请检查邮箱！",
+    "registering": "注册中...",
+    "inviteCodeRequired": "邀请码是必填项"
   },
   "registerPage": {
     "alreadyHaveAccount": "已经有帐号了?点击登录"
@@ -184,6 +186,7 @@
     "modelName": "模型名称",
     "channelName": "渠道名称",
     "testModel": "测试模型",
+    "channelApiAddress": "渠道API地址",
     "otherParameters": "其他参数",
     "channelType": "渠道类型",
     "all": "全部",
@@ -222,7 +225,20 @@
     "pleaseSelectChannelsForUserGroup": "请选择至少一个渠道",
     "addingUserGroup": "添加中...",
     "addUserGroupToChannels": "为 {{count}} 个渠道添加用户分组",
-    "batchAddUserGroupSuccess": "成功为 {{count}} 个渠道添加用户分组 \"{{group}}\""
+    "batchAddUserGroupSuccess": "成功为 {{count}} 个渠道添加用户分组 \"{{group}}\"",
+    "batchAddModel": "批量添加模型",
+    "batchAddModelTip": "选择渠道并添加模型。支持输入多个模型。如果渠道已有某个模型，将跳过该模型。",
+    "selectModelToAdd": "选择或输入要添加的模型",
+    "pleaseSelectModel": "请选择或输入模型",
+    "pleaseSelectChannelsForModel": "请选择至少一个渠道",
+    "channelAlreadyHasModel": "（已有部分模型）",
+    "currentModels": "当前模型",
+    "noModels": "无",
+    "addingModel": "添加中...",
+    "addModelToChannels": "为 {{count}} 个渠道添加模型",
+    "batchAddModelSuccess": "成功为 {{count}} 个渠道添加模型 \"{{model}}\"",
+    "modelInputTip": "支持输入多个模型，用逗号分隔",
+    "loadingChannels": "正在加载渠道列表..."
   },
   "channel_edit": {
     "customModelTip": "自定义：点击或回车输入",
@@ -299,8 +315,11 @@
   "token_index": {
     "token": "令牌",
     "createToken": "新建令牌",
-    "replaceApiAddress1": "将OpenAI API基础地址https://api.openai.com替换为",
-    "replaceApiAddress2": "，复制下面的密钥即可使用。",
+    "apiUsageTip": "API 使用说明：复制下面的密钥，并将对应的 API 基础地址替换为以下地址",
+    "openaiApi": "OpenAI",
+    "geminiApi": "Gemini",
+    "claudeApi": "Claude",
+    "apiAddress": "API 地址",
     "searchTokenName": "搜索令牌的名称...",
     "refresh": "刷新",
     "name": "名称",
@@ -324,13 +343,26 @@
     "quota": "额度",
     "unlimitedQuota": "无限额度",
     "enableCache": "是否开启缓存(开启后，将会缓存聊天记录，以减少消费)",
+    "selectGroup": "选择分组",
+    "selectGroupInfo": "在这里选择你想要使用的渠道分组，当渠道分组不可用时，将会使用备用渠道",
     "userGroup": "分组",
+    "userBackupGroup": "备用分组",
     "cancel": "取消",
     "submit": "提交",
     "heartbeat": "心跳设置(实验性)",
     "heartbeatTip": "心跳设置是指当在请求时，如果长时间没有返回数据，您的客户端可能会因为超时机制而断开连接。为了保持TCP连接不会因超时中断，您可以开启心跳设置，当请求超出您设置的开始时间，且无响应时，我们将会每隔5秒发送一次心跳请求(非流式请求返回空行，流式返回::PING)，以保持连接。注意：如果您在使用中转程序时，请不要开启该设置，可能会出现不可预知的问题。",
     "heartbeatTimeout": "心跳开始时间(单位：秒)",
-    "heartbeatTimeoutHelperText": "最小值为30秒，最大值为90秒"
+    "heartbeatTimeoutHelperText": "最小值为30秒，最大值为90秒",
+    "limits": "令牌限制",
+    "limits_info": "设置后，可以对令牌进行限制",
+    "limits_models_switch": "启用模型限制",
+    "limit_models": "模型限制",
+    "limit_models_info": "选择允许此令牌使用的模型，未选择则表示允许所有模型",
+    "limits_ip_whitelist": "IP白名单",
+    "limits_ip_whitelist_info": "限制令牌只能从特定IP地址或范围访问",
+    "limits_ip_whitelist_switch": "启用IP白名单",
+    "limits_ip_whitelist_input": "IP地址",
+    "limits_ip_whitelist_helper": "每行输入一个IP地址或CIDR范围（如：192.168.1.1 或 10.0.0.0/8）"
   },
   "invoice_index": {
     "invoice": "月度账单",
@@ -370,6 +402,11 @@
     "title": "日志",
     "refreshButton": "刷新/清除搜索条件",
     "searchButton": "搜索",
+    "searching": "搜索中...",
+    "exportButton": "导出CSV",
+    "exporting": "导出中...",
+    "exportSuccess": "导出成功",
+    "exportError": "导出失败",
     "columnSettings": "列设置",
     "selectColumns": "选择列",
     "columnSelectAll": "全选",
@@ -395,6 +432,8 @@
     "cachedWriteTokens": "缓存写入Tokens (* {{ ratio }})",
     "cachedReadTokens": "缓存读取Tokens (* {{ ratio }})",
     "reasoningTokens": "推理Tokens (* {{ ratio }})",
+    "inputImageTokens": "输入图像Tokens (* {{ ratio }})",
+    "outputImageTokens": "输出图像Tokens (* {{ ratio }})",
     "totalInputTokens": "计算输入Tokens",
     "totalOutputTokens": "计算输出Tokens",
     "sourceIp": "来源IP",
@@ -550,6 +589,8 @@
     "userRole": "用户角色",
     "bind": "绑定",
     "creationTime": "创建时间",
+    "lastLoginTime": "最后登录时间",
+    "lastLoginIP": "最后登录IP",
     "status": "状态",
     "action": "操作",
     "useQuota": "请求次数",
@@ -599,7 +640,15 @@
     "lark": "飞书",
     "tokenNotice": "注意，此处生成的令牌用于系统管理，而非用于请求 OpenAI 相关的服务，请知悉。",
     "yourTokenIs": "你的访问令牌是:",
-    "keepSafe": "请妥善保管。如有泄漏，请立即重置。"
+    "keepSafe": "请妥善保管。如有泄漏，请立即重置。",
+    "registerWebauthn": "注册WebAuthn凭证",
+    "webauthnManagement":"WebAuthn 凭据管理",
+    "webauthnDescription": "WebAuthn 提供无密码身份验证，您可以使用指纹、Face ID 或安全密钥等生物识别方式进行登录。",
+    "registeredCredentials": "已注册凭证",
+    "alias": "别名:",
+    "credentialId": "凭据 ID:",
+    "registerTime": "注册时间:",
+    "delete": "删除"
   },
   "pricingPage": {
     "title": "模型价格",
@@ -748,6 +797,8 @@
         "emptyResponseBilling": "空回复计费",
         "unifiedRequestResponseModel": "统一请求响应模型",
         "unifiedRequestResponseModelTooltip": "当存在模型映射时，响应中的model值为请求的model值，而非实际调用的模型名称",
+        "modelNameCaseInsensitive": "模型名称大小写不敏感",
+        "modelNameCaseInsensitiveTooltip": "开启后，模型匹配时将忽略大小写，例如 GPT-4、gpt-4、Gpt-4 都会匹配到同一个模型",
         "saveButton": "保存通用设置"
       },
       "invoice": {
@@ -854,7 +905,8 @@
       },
       "chatLinkSettings": {
         "title": "聊天链接设置",
-        "info": "配置聊天链接，该配置在令牌中的聊天生效以及首页的Playground中的聊天生效. <br />链接中可以使&#123;key&#125;替换用户的令牌，&#123;server&#125;替换服务器地址。例如：{'https://chat.oneapi.pro/#/?settings={\"key\":\"sk-{key}\",\"url\":\"{server}\"}'}<br />如果未配置，会默认配置以下4个链接：<br />ChatGPT Next ： {'https://chat.oneapi.pro/#/?settings={\"key\":\"{key}\",\"url\":\"{server}\"}'}<br />chatgpt-web-midjourney-proxy ： {'https://vercel.ddaiai.com/#/?settings={\"key\":\"{key}\",\"url\":\"{server}\"}'}<br />AMA 问天 ： {'ama://set-api-key?server={server}&key={key}'}<br />opencat ： {'opencat://team/join?domain={server}&token={key}'}<br />排序规则：值越大越靠前，值相同则按照配置顺序",
+        "builtinChatEnabled": "启用内置聊天",
+        "info": "配置聊天链接，该配置在令牌中的聊天生效以及首页的Playground中的聊天生效. <br />链接中可以使&#123;key&#125;替换用户的令牌，&#123;server&#125;替换服务器地址，base64<[xxxxxx]>进行base64编码。例如：{'https://chat.oneapi.pro/#/?settings={\"key\":\"sk-{key}\",\"url\":\"{server}\"}'}<br />如果未配置，会默认配置以下4个链接：<br />ChatGPT Next ： {'https://chat.oneapi.pro/#/?settings={\"key\":\"{key}\",\"url\":\"{server}\"}'}<br />chatgpt-web-midjourney-proxy ： {'https://vercel.ddaiai.com/#/?settings={\"key\":\"{key}\",\"url\":\"{server}\"}'}<br />AMA 问天 ： {'ama://set-api-key?server={server}&key={key}'}<br />opencat ： {'opencat://team/join?domain={server}&token={key}'}<br />排序规则：值越大越靠前，值相同则按照配置顺序",
         "save": "保存聊天链接设置"
       },
       "extraTokenPriceJson": {
@@ -910,6 +962,9 @@
       },
       "configureLoginRegister": {
         "title": "配置登录和注册",
+        "generalSettings": "通用设置",
+        "passwordSettings": "密码登录",
+        "thirdPartyLogin": "第三方登录",
         "passwordLogin": "允许通过密码进行登录",
         "passwordRegister": "允许通过密码进行注册",
         "emailVerification": "通过密码注册时需要进行邮箱验证",
@@ -921,7 +976,8 @@
         "turnstileCheck": "启用 Turnstile 用户校验",
         "gitHubOldIdClose": "关闭 GitHub 老 ID 登录",
         "linuxDoOAuth": "允许通过 LINUX DO 账户登录 & 注册",
-        "linuxDoOAuthTrustLevel": "允许通过 LINUX DO 信任等级进行限制"
+        "linuxDoOAuthTrustLevel": "启用 LINUX DO 信任等级限制",
+        "linuxDoOAuthDynamicTrustLevel": "LINUX DO 动态限制已注册用户（关闭后老用户不受新等级限制）"
       },
       "configureEmailDomainWhitelist": {
         "title": "配置邮箱域名白名单",
@@ -1108,7 +1164,8 @@
     "linuxDoLogin": "LINUX DO 登录",
     "useLinuxDoLogin": "使用 LINUX DO 登录",
     "linuxDoError": "操作失败，重定向至登录界面中...",
-    "linuxDoCountError": "出现错误，第 {{count}} 次重试中..."
+    "linuxDoCountError": "出现错误，第 {{count}} 次重试中...",
+    "loggingIn": "登录中..."
   },
   "description": "All in one 的 OpenAI 接口\n整合各种 API 访问方式\n一键部署，开箱即用",
   "about": {

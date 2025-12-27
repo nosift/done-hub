@@ -13,6 +13,7 @@ import ButtonGroup from '@mui/material/ButtonGroup'
 import Toolbar from '@mui/material/Toolbar'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import Alert from '@mui/material/Alert'
+import Collapse from '@mui/material/Collapse'
 
 import { Box, Button, Card, Container, Divider, IconButton, Stack, Typography } from '@mui/material'
 import ChannelTableRow from './component/TableRow'
@@ -32,13 +33,14 @@ const originalKeyword = {
   type: 0,
   status: 0,
   name: '',
-  group: '',
+  group: 'all',
   models: '',
   key: '',
   test_model: '',
   other: '',
   filter_tag: 0,
-  tag: ''
+  tag: 'all',
+  base_url: ''
 }
 
 export async function fetchChannelData(page, rowsPerPage, keyword, order, orderBy) {
@@ -100,6 +102,9 @@ export default function ChannelList() {
   // 批量删除相关状态
   const [selectedChannels, setSelectedChannels] = useState([])
   const [batchDeleteConfirm, setBatchDeleteConfirm] = useState(false)
+
+  // 提示框展开状态
+  const [alertExpanded, setAlertExpanded] = useState(false)
 
   const handleSort = (event, id) => {
     const isAsc = orderBy === id && order === 'asc'
@@ -345,6 +350,14 @@ export default function ChannelList() {
       delete keyword._timestamp
     }
 
+    // 将 group 和 tag 的 'all' 转换为空字符串
+    if (keyword.group === 'all') {
+      keyword.group = ''
+    }
+    if (keyword.tag === 'all') {
+      keyword.tag = ''
+    }
+
     const data = await fetchChannelData(page, rowsPerPage, keyword, order, orderBy)
 
     if (data) {
@@ -491,17 +504,41 @@ export default function ChannelList() {
           </Button>
         </ButtonGroup>
       </Stack>
-      <Stack mb={5}>
-        <Alert severity="info">
-          {t('channel_index.priorityWeightExplanation')}
-          <br/>
-          {t('channel_index.description1')}
-          <br/>
-          {t('channel_index.description2')}
-          <br/>
-          {t('channel_index.description3')}
-          <br/>
-          {t('channel_index.description4')}
+      <Stack mb={2}>
+        <Alert
+          severity="info"
+          action={
+            <IconButton
+              size="small"
+              onClick={(e) => {
+                e.stopPropagation()
+                setAlertExpanded(!alertExpanded)
+              }}
+              sx={{ ml: 1 }}
+            >
+              <Icon
+                icon={alertExpanded ? 'solar:alt-arrow-up-line-duotone' : 'solar:alt-arrow-down-line-duotone'}
+                width={18}
+              />
+            </IconButton>
+          }
+          sx={{ cursor: 'pointer' }}
+          onClick={() => setAlertExpanded(!alertExpanded)}
+        >
+          <Typography variant="body2" component="span">
+            {t('channel_index.priorityWeightExplanation')}
+          </Typography>
+          <Collapse in={alertExpanded} timeout="auto">
+            <Box sx={{ mt: 1 }}>
+              {t('channel_index.description1')}
+              <br/>
+              {t('channel_index.description2')}
+              <br/>
+              {t('channel_index.description3')}
+              <br/>
+              {t('channel_index.description4')}
+            </Box>
+          </Collapse>
         </Alert>
       </Stack>
       <Card>
@@ -521,7 +558,8 @@ export default function ChannelList() {
             height: 50,
             display: 'flex',
             justifyContent: 'space-between',
-            p: (theme) => theme.spacing(0, 1, 0, 3)
+            p: (theme) => theme.spacing(0, 1, 0, 3),
+            minWidth: 0
           }}
         >
           {/* 左侧删除渠道按钮 */}
@@ -542,17 +580,129 @@ export default function ChannelList() {
             </Button>
           )}
 
-          <Container maxWidth="xl">
+          <Box sx={{ flex: 1, overflow: 'hidden', minWidth: 0, display: 'flex', justifyContent: 'flex-end', ml: 2 }}>
             {matchUpMd ? (
-              <ButtonGroup variant="outlined" aria-label="outlined small primary button group">
-                <Button onClick={() => handleRefresh(true)}
-                        startIcon={<Icon icon="solar:refresh-circle-bold-duotone" width={18}/>}>
-                  {t('channel_index.refreshClearSearchConditions')}
-                </Button>
-                <Button
-                  onClick={searchChannels}
-                  startIcon={
-                    searching ? (
+              <Box sx={{
+                overflow: 'auto',
+                maxWidth: '100%',
+                scrollBehavior: 'smooth',
+                '&::-webkit-scrollbar': {
+                  height: '4px'
+                },
+                '&::-webkit-scrollbar-thumb': {
+                  backgroundColor: 'rgba(0,0,0,0.2)',
+                  borderRadius: '2px'
+                }
+              }}>
+                <ButtonGroup
+                  variant="outlined"
+                  aria-label="outlined small primary button group"
+                  sx={{
+                    flexWrap: 'nowrap',
+                    minWidth: 'max-content',
+                    display: 'flex'
+                  }}
+                >
+                  <Button
+                    onClick={() => handleRefresh(true)}
+                    startIcon={<Icon icon="solar:refresh-circle-bold-duotone" width={18}/>}
+                    sx={{
+                      whiteSpace: 'nowrap',
+                      minWidth: 'auto',
+                      px: 1.5
+                    }}
+                  >
+                    {t('channel_index.refreshClearSearchConditions')}
+                  </Button>
+                  <Button
+                    onClick={searchChannels}
+                    startIcon={
+                      searching ? (
+                        <Icon
+                          icon="solar:refresh-bold-duotone"
+                          width={18}
+                          style={{
+                            animation: 'spin 1s linear infinite',
+                            color: '#1976d2'
+                          }}
+                        />
+                      ) : (
+                        <Icon icon="solar:magnifer-bold-duotone" width={18}/>
+                      )
+                    }
+                    sx={{
+                      whiteSpace: 'nowrap',
+                      minWidth: 'auto',
+                      px: 1.5,
+                      ...(searching && {
+                        bgcolor: 'action.hover',
+                        color: 'primary.main',
+                        '&:hover': {
+                          bgcolor: 'action.selected'
+                        }
+                      })
+                    }}
+                  >
+                    {searching ? '搜索中...' : t('channel_index.search')}
+                  </Button>
+                  <Button
+                    onClick={() => handlePopoverOpen(t('channel_index.testAllChannels'), testAllChannels)}
+                    startIcon={<Icon icon="solar:test-tube-bold-duotone" width={18}/>}
+                    sx={{
+                      whiteSpace: 'nowrap',
+                      minWidth: 'auto',
+                      px: 1.5
+                    }}
+                  >
+                    {t('channel_index.testAllChannels')}
+                  </Button>
+                  <Button
+                    onClick={() => handlePopoverOpen(t('channel_index.updateEnabledBalance'), updateAllChannelsBalance)}
+                    startIcon={<Icon icon="solar:dollar-minimalistic-bold-duotone" width={18}/>}
+                    sx={{
+                      whiteSpace: 'nowrap',
+                      minWidth: 'auto',
+                      px: 1.5
+                    }}
+                  >
+                    {t('channel_index.updateEnabledBalance')}
+                  </Button>
+                  <Button
+                    onClick={() => handlePopoverOpen(t('channel_index.deleteDisabledChannels'), deleteAllDisabledChannels)}
+                    startIcon={<Icon icon="solar:trash-bin-trash-bold-duotone" width={18}/>}
+                    sx={{
+                      whiteSpace: 'nowrap',
+                      minWidth: 'auto',
+                      px: 1.5
+                    }}
+                  >
+                    {t('channel_index.deleteDisabledChannels')}
+                  </Button>
+                </ButtonGroup>
+              </Box>
+            ) : (
+              <Container maxWidth="xl">
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  divider={<Divider orientation="vertical" flexItem/>}
+                  justifyContent="space-around"
+                  alignItems="center"
+                >
+                  <IconButton onClick={() => handleRefresh(true)} size="small">
+                    <Icon icon="solar:refresh-circle-bold-duotone" width={18}/>
+                  </IconButton>
+                  <IconButton
+                    onClick={searchChannels}
+                    size="small"
+                    sx={{
+                      ...(searching && {
+                        bgcolor: 'action.hover',
+                        color: 'primary.main'
+                      })
+                    }}
+                  >
+                    {searching ? (
                       <Icon
                         icon="solar:refresh-bold-duotone"
                         width={18}
@@ -563,96 +713,32 @@ export default function ChannelList() {
                       />
                     ) : (
                       <Icon icon="solar:magnifer-bold-duotone" width={18}/>
-                    )
-                  }
-                  sx={{
-                    ...(searching && {
-                      bgcolor: 'action.hover',
-                      color: 'primary.main',
-                      '&:hover': {
-                        bgcolor: 'action.selected'
-                      }
-                    })
-                  }}
-                >
-                  {searching ? '搜索中...' : t('channel_index.search')}
-                </Button>
-                <Button
-                  onClick={() => handlePopoverOpen(t('channel_index.testAllChannels'), testAllChannels)}
-                  startIcon={<Icon icon="solar:test-tube-bold-duotone" width={18}/>}
-                >
-                  {t('channel_index.testAllChannels')}
-                </Button>
-                <Button
-                  onClick={() => handlePopoverOpen(t('channel_index.updateEnabledBalance'), updateAllChannelsBalance)}
-                  startIcon={<Icon icon="solar:dollar-minimalistic-bold-duotone" width={18}/>}
-                >
-                  {t('channel_index.updateEnabledBalance')}
-                </Button>
-                <Button
-                  onClick={() => handlePopoverOpen(t('channel_index.deleteDisabledChannels'), deleteAllDisabledChannels)}
-                  startIcon={<Icon icon="solar:trash-bin-trash-bold-duotone" width={18}/>}
-                >
-                  {t('channel_index.deleteDisabledChannels')}
-                </Button>
-              </ButtonGroup>
-            ) : (
-              <Stack
-                direction="row"
-                spacing={0.5}
-                divider={<Divider orientation="vertical" flexItem/>}
-                justifyContent="space-around"
-                alignItems="center"
-              >
-                <IconButton onClick={() => handleRefresh(true)} size="large">
-                  <Icon width={20} icon="solar:refresh-circle-bold-duotone"/>
-                </IconButton>
-                <IconButton
-                  onClick={searchChannels}
-                  size="large"
-                  sx={{
-                    ...(searching && {
-                      bgcolor: 'action.hover',
-                      color: 'primary.main'
-                    })
-                  }}
-                >
-                  {searching ? (
-                    <Icon
-                      width={20}
-                      icon="solar:refresh-bold-duotone"
-                      style={{
-                        animation: 'spin 1s linear infinite',
-                        color: '#1976d2'
-                      }}
-                    />
-                  ) : (
-                    <Icon width={20} icon="solar:magnifer-bold-duotone"/>
-                  )}
-                </IconButton>
-                <IconButton onClick={() => handlePopoverOpen(t('channel_index.testAllChannels'), testAllChannels)}
-                            size="large">
-                  <Icon width={20} icon="solar:test-tube-bold-duotone"/>
-                </IconButton>
-                <IconButton
-                  onClick={() => handlePopoverOpen(t('channel_index.updateEnabledBalance'), updateAllChannelsBalance)}
-                  size="large"
-                >
-                  <Icon width={20} icon="solar:dollar-minimalistic-bold-duotone"/>
-                </IconButton>
-                <IconButton
-                  onClick={() => handlePopoverOpen(t('channel_index.deleteDisabledChannels'), deleteAllDisabledChannels)}
-                  size="large"
-                >
-                  <Icon width={20} icon="solar:trash-bin-trash-bold-duotone"/>
-                </IconButton>
-                <IconButton onClick={handleBatchDelete} disabled={selectedChannels.length === 0} size="large"
-                            color="error">
-                  <Icon width={20} icon="solar:trash-bin-2-bold-duotone"/>
-                </IconButton>
-              </Stack>
+                    )}
+                  </IconButton>
+                  <IconButton onClick={() => handlePopoverOpen(t('channel_index.testAllChannels'), testAllChannels)}
+                              size="small">
+                    <Icon icon="solar:test-tube-bold-duotone" width={18}/>
+                  </IconButton>
+                  <IconButton
+                    onClick={() => handlePopoverOpen(t('channel_index.updateEnabledBalance'), updateAllChannelsBalance)}
+                    size="small"
+                  >
+                    <Icon icon="solar:dollar-minimalistic-bold-duotone" width={18}/>
+                  </IconButton>
+                  <IconButton
+                    onClick={() => handlePopoverOpen(t('channel_index.deleteDisabledChannels'), deleteAllDisabledChannels)}
+                    size="small"
+                  >
+                    <Icon icon="solar:trash-bin-trash-bold-duotone" width={18}/>
+                  </IconButton>
+                  <IconButton onClick={handleBatchDelete} disabled={selectedChannels.length === 0} size="small"
+                              color="error">
+                    <Icon icon="solar:trash-bin-2-bold-duotone" width={18}/>
+                  </IconButton>
+                </Stack>
+              </Container>
             )}
-          </Container>
+          </Box>
         </Toolbar>
         {searching && <LinearProgress/>}
         <TableContainer>
@@ -722,7 +808,7 @@ export default function ChannelList() {
         modelOptions={modelOptions}
         prices={prices}
       />
-      <BatchModal open={openBatchModal} setOpen={setOpenBatchModal} groupOptions={groupOptions}/>
+      <BatchModal open={openBatchModal} setOpen={setOpenBatchModal} groupOptions={groupOptions} modelOptions={modelOptions}/>
 
       <ConfirmDialog
         open={confirm.value}

@@ -43,8 +43,8 @@ export default function ModelPrice() {
   const [userGroupMap, setUserGroupMap] = useState({});
   const [selectedGroup, setSelectedGroup] = useState('');
   const [selectedOwnedBy, setSelectedOwnedBy] = useState('all');
-  const [unit, setUnit] = useState('K');
-  const [onlyShowAvailable, setOnlyShowAvailable] = useState(false);
+  const [unit, setUnit] = useState('M');
+  const [onlyShowAvailable, setOnlyShowAvailable] = useState(true);
 
   const unitOptions = [
     { value: 'K', label: 'K' },
@@ -215,7 +215,6 @@ export default function ModelPrice() {
           }}
         >
           <Paper
-            component="form"
             sx={{
               p: '2px 4px',
               display: 'flex',

@@ -33,7 +33,7 @@ func (p *VertexAIProvider) CreateGeminiChat(request *gemini.GeminiChatRequest) (
 	}
 
 	usage := p.GetUsage()
-	*usage = gemini.ConvertOpenAIUsage(geminiResponse.UsageMetadata)
+	*usage = gemini.ConvertOpenAIUsageWithFallback(geminiResponse.UsageMetadata, geminiResponse)
 
 	return geminiResponse, nil
 }
@@ -86,10 +86,9 @@ func (p *VertexAIProvider) getGeminiRequest(request *gemini.GeminiChatRequest) (
 		return nil, common.StringErrorWrapperLocal("vertexAI config error", "invalid_vertexai_config", http.StatusInternalServerError)
 	}
 
-	headers := p.GetRequestHeaders()
-
-	if headers == nil {
-		return nil, common.StringErrorWrapperLocal("vertexAI config error", "invalid_vertexai_config", http.StatusInternalServerError)
+	headers, err := p.getRequestHeadersInternal()
+	if err != nil {
+		return nil, p.handleTokenError(err)
 	}
 
 	if request.Stream {

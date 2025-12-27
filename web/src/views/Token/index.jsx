@@ -11,7 +11,7 @@ import Alert from '@mui/material/Alert';
 import ButtonGroup from '@mui/material/ButtonGroup';
 import Toolbar from '@mui/material/Toolbar';
 
-import { Button, Card, Box, Stack, Container, Typography } from '@mui/material';
+import { Button, Card, Box, Stack, Container, Typography, Tabs, Tab } from '@mui/material';
 import TokensTableRow from './component/TableRow';
 import KeywordTableHead from 'ui-component/TableHead';
 import TableToolBar from 'ui-component/TableToolBar';
@@ -39,6 +39,7 @@ export default function Token() {
 
   const [openModal, setOpenModal] = useState(false);
   const [editTokenId, setEditTokenId] = useState(0);
+  const [selectedApiType, setSelectedApiType] = useState('openai');
   const siteInfo = useSelector((state) => state.siteInfo);
   const { userGroup } = useSelector((state) => state.account);
 
@@ -189,29 +190,75 @@ export default function Token() {
           {t('token_index.createToken')}
         </Button>
       </Stack>
-      <Stack mb={5}>
-        <Alert severity="info">
-          {t('token_index.replaceApiAddress1')}
-          <Box
-            component="span"
+      <Stack mb={2}>
+        <Alert
+          severity="info"
+          sx={{
+            py: 1.5,
+            '& .MuiAlert-message': {
+              width: '100%',
+              py: 0
+            }
+          }}
+        >
+          <Tabs
+            value={selectedApiType}
+            onChange={(e, newValue) => setSelectedApiType(newValue)}
             sx={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              backgroundColor: 'rgba(0, 0, 0, 0.08)',
-              padding: '4px 8px',
-              borderRadius: '4px',
-              margin: '0 4px',
-              cursor: 'pointer',
-              '&:hover': {
-                backgroundColor: 'rgba(0, 0, 0, 0.12)'
+              minHeight: '32px',
+              mb: 1.5,
+              '& .MuiTabs-indicator': {
+                height: '2px'
+              },
+              '& .MuiTab-root': {
+                minHeight: '32px',
+                minWidth: 'auto',
+                py: 0.5,
+                px: 2,
+                fontSize: '0.875rem',
+                textTransform: 'none'
               }
             }}
-            onClick={() => copy(siteInfo.server_address, 'API地址')}
           >
-            <b>{siteInfo.server_address}</b>
-            <Icon icon="solar:copy-line-duotone" style={{ marginLeft: '8px', fontSize: '18px' }} />
+            <Tab label={t('token_index.openaiApi')} value="openai" />
+            {siteInfo.GeminiAPIEnabled && <Tab label={t('token_index.geminiApi')} value="gemini" />}
+            {siteInfo.ClaudeAPIEnabled && <Tab label={t('token_index.claudeApi')} value="claude" />}
+          </Tabs>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <Typography variant="body2" sx={{ mr: 1.5, color: 'text.secondary', fontSize: '0.875rem' }}>
+              {t('token_index.apiAddress')}:
+            </Typography>
+            <Box
+              component="span"
+              sx={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                backgroundColor: 'rgba(0, 0, 0, 0.08)',
+                padding: '4px 10px',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '0.875rem',
+                '&:hover': {
+                  backgroundColor: 'rgba(0, 0, 0, 0.12)'
+                }
+              }}
+              onClick={() => {
+                const apiMap = {
+                  openai: { url: siteInfo.server_address, label: 'OpenAI API地址' },
+                  gemini: { url: `${siteInfo.server_address}/gemini`, label: 'Gemini API地址' },
+                  claude: { url: `${siteInfo.server_address}/claude`, label: 'Claude API地址' }
+                };
+                copy(apiMap[selectedApiType].url, apiMap[selectedApiType].label);
+              }}
+            >
+              <b>
+                {selectedApiType === 'openai' && siteInfo.server_address}
+                {selectedApiType === 'gemini' && `${siteInfo.server_address}/gemini`}
+                {selectedApiType === 'claude' && `${siteInfo.server_address}/claude`}
+              </b>
+              <Icon icon="solar:copy-line-duotone" style={{ marginLeft: '6px', fontSize: '16px' }} />
+            </Box>
           </Box>
-          {t('token_index.replaceApiAddress2')}
         </Alert>
       </Stack>
       <Card>

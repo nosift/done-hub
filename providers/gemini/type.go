@@ -186,6 +186,9 @@ type GeminiPart struct {
 	ExecutableCode      *GeminiPartExecutableCode      `json:"executableCode,omitempty"`
 	CodeExecutionResult *GeminiPartCodeExecutionResult `json:"codeExecutionResult,omitempty"`
 	Thought             bool                           `json:"thought,omitempty"` // 是否是思考内容
+	ThoughtSignature    json.RawMessage                `json:"thoughtSignature,omitempty"`
+	MediaResolution     json.RawMessage                `json:"mediaResolution,omitempty"`
+	VideoMetadata       json.RawMessage                `json:"videoMetadata,omitempty"`
 }
 
 type GeminiPartExecutableCode struct {
@@ -201,7 +204,7 @@ type GeminiPartCodeExecutionResult struct {
 type GeminiFunctionCall struct {
 	Name string                 `json:"name,omitempty"`
 	Args map[string]interface{} `json:"args,omitempty"`
-	Id   string                 `json:"-"` // 忽略 OpenAI 格式的 id 字段
+	Id   string                 `json:"id,omitempty"`
 }
 
 func (candidate *GeminiChatCandidate) ToOpenAIStreamChoice(request *types.ChatCompletionRequest) types.ChatCompletionStreamChoice {
@@ -269,10 +272,26 @@ func (candidate *GeminiChatCandidate) ToOpenAIStreamChoice(request *types.ChatCo
 		choice.Delta.Image = images
 	}
 
+	// Add grounding metadata as markdown citations
+	if candidate.GroundingMetadata != nil && showGoogleSearchMeta(request) {
+		groundingMarkdown := formatGroundingMetadataAsMarkdown(candidate.GroundingMetadata)
+		if groundingMarkdown != "" {
+			content = append(content, "\n\n"+groundingMarkdown)
+		}
+	}
+
 	choice.Delta.Content = strings.Join(content, "\n")
 
 	if len(reasoningContent) > 0 {
 		choice.Delta.ReasoningContent = strings.Join(reasoningContent, "\n")
+	}
+
+	// 处理 GroundingMetadata，转换为 OpenAI 格式的 Annotations
+	if candidate.GroundingMetadata != nil {
+		annotations := candidate.ConvertGroundingToAnnotations()
+		if len(annotations) > 0 {
+			choice.Delta.Annotations = annotations
+		}
 	}
 
 	if isTools {
@@ -352,12 +371,32 @@ func (candidate *GeminiChatCandidate) ToOpenAIChoice(request *types.ChatCompleti
 
 	choice.Message.Content = strings.Join(content, "\n")
 
+	// Add grounding metadata as markdown citations
+	if candidate.GroundingMetadata != nil && showGoogleSearchMeta(request) {
+		groundingMarkdown := formatGroundingMetadataAsMarkdown(candidate.GroundingMetadata)
+		if groundingMarkdown != "" {
+			if contentStr, ok := choice.Message.Content.(string); ok && contentStr != "" {
+				choice.Message.Content = contentStr + "\n\n" + groundingMarkdown
+			} else {
+				choice.Message.Content = groundingMarkdown
+			}
+		}
+	}
+
 	if len(reasoningContent) > 0 {
 		choice.Message.ReasoningContent = strings.Join(reasoningContent, "\n")
 	}
 
 	if len(images) > 0 {
 		choice.Message.Image = images
+	}
+
+	// 处理 GroundingMetadata，转换为 OpenAI 格式的 Annotations
+	if candidate.GroundingMetadata != nil {
+		annotations := candidate.ConvertGroundingToAnnotations()
+		if len(annotations) > 0 {
+			choice.Message.Annotations = annotations
+		}
 	}
 
 	if useTools {
@@ -370,13 +409,16 @@ func (candidate *GeminiChatCandidate) ToOpenAIChoice(request *types.ChatCompleti
 }
 
 type GeminiFunctionResponse struct {
-	Name     string `json:"name,omitempty"`
-	Response any    `json:"response,omitempty"`
+	Name         string          `json:"name,omitempty"`
+	Response     any             `json:"response,omitempty"`
+	WillContinue json.RawMessage `json:"willContinue,omitempty"`
+	Scheduling   json.RawMessage `json:"scheduling,omitempty"`
+	Parts        json.RawMessage `json:"parts,omitempty"`
+	ID           json.RawMessage `json:"id,omitempty"`
 }
 
 type GeminiFunctionResponseContent struct {
-	Name    string `json:"name,omitempty"`
-	Content string `json:"content,omitempty"`
+	Output string `json:"output,omitempty"`
 }
 
 func (g *GeminiFunctionCall) ToOpenAITool() *types.ChatCompletionToolCalls {
@@ -424,7 +466,12 @@ type GeminiChatGenerationConfig struct {
 	ResponseMimeType   string          `json:"responseMimeType,omitempty"`
 	ResponseSchema     any             `json:"responseSchema,omitempty"`
 	ResponseModalities []string        `json:"responseModalities,omitempty"`
+	ImageConfig        *ImageConfig    `json:"imageConfig,omitempty"` // 图像生成配置
 	ThinkingConfig     *ThinkingConfig `json:"thinkingConfig,omitempty"`
+}
+
+type ImageConfig struct {
+	AspectRatio string `json:"aspectRatio,omitempty"` // 图像宽高比，如 "16:9", "1:1", "9:16" 等
 }
 
 type ThinkingConfig struct {
@@ -433,9 +480,17 @@ type ThinkingConfig struct {
 }
 
 type GeminiError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-	Status  string `json:"status"`
+	Code    int                  `json:"code"`
+	Message string               `json:"message"`
+	Status  string               `json:"status"`
+	Details []GeminiErrorDetails `json:"details,omitempty"`
+}
+
+type GeminiErrorDetails struct {
+	Type     string                 `json:"@type,omitempty"`
+	Reason   string                 `json:"reason,omitempty"`
+	Domain   string                 `json:"domain,omitempty"`
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
 }
 
 func (e *GeminiError) Error() string {
@@ -493,12 +548,87 @@ type GeminiChatCandidate struct {
 	CitationMetadata      any                      `json:"citationMetadata,omitempty"`
 	TokenCount            int                      `json:"tokenCount,omitempty"`
 	GroundingAttributions []any                    `json:"groundingAttributions,omitempty"`
+	GroundingMetadata     *GeminiGroundingMetadata `json:"groundingMetadata,omitempty"`
 	AvgLogprobs           any                      `json:"avgLogprobs,omitempty"`
 }
 
 type GeminiChatSafetyRating struct {
 	Category    string `json:"category"`
 	Probability string `json:"probability"`
+}
+
+// GroundingMetadata 相关结构定义
+type GeminiGroundingMetadata struct {
+	SearchEntryPoint  *GeminiSearchEntryPoint  `json:"searchEntryPoint,omitempty"`
+	GroundingChunks   []GeminiGroundingChunk   `json:"groundingChunks,omitempty"`
+	GroundingSupports []GeminiGroundingSupport `json:"groundingSupports,omitempty"`
+	WebSearchQueries  []string                 `json:"webSearchQueries,omitempty"`
+}
+
+type GeminiSearchEntryPoint struct {
+	RenderedContent string `json:"renderedContent,omitempty"`
+}
+
+type GeminiGroundingChunk struct {
+	Web *GeminiWebChunk `json:"web,omitempty"`
+}
+
+type GeminiWebChunk struct {
+	Uri   string `json:"uri,omitempty"`
+	Title string `json:"title,omitempty"`
+}
+
+type GeminiGroundingSupport struct {
+	Segment               *GeminiGroundingSegment `json:"segment,omitempty"`
+	GroundingChunkIndices []int                   `json:"groundingChunkIndices,omitempty"`
+}
+
+type GeminiGroundingSegment struct {
+	StartIndex int    `json:"startIndex,omitempty"`
+	EndIndex   int    `json:"endIndex,omitempty"`
+	Text       string `json:"text,omitempty"`
+}
+
+// ConvertGroundingToAnnotations 将 Gemini GroundingMetadata 转换为 OpenAI Annotations 格式
+func (candidate *GeminiChatCandidate) ConvertGroundingToAnnotations() []types.Annotations {
+	if candidate.GroundingMetadata == nil || len(candidate.GroundingMetadata.GroundingSupports) == 0 {
+		return nil
+	}
+
+	var annotations []types.Annotations
+	// 使用 map 来去重，避免重复的引用
+	seenAnnotations := make(map[string]bool)
+
+	// 遍历 GroundingSupports，为每个支持的文本段创建引用
+	for _, support := range candidate.GroundingMetadata.GroundingSupports {
+		if support.Segment == nil || len(support.GroundingChunkIndices) == 0 {
+			continue
+		}
+
+		// 为每个引用的 chunk 创建 annotation
+		for _, chunkIndex := range support.GroundingChunkIndices {
+			if chunkIndex >= 0 && chunkIndex < len(candidate.GroundingMetadata.GroundingChunks) {
+				chunk := candidate.GroundingMetadata.GroundingChunks[chunkIndex]
+				if chunk.Web != nil && chunk.Web.Uri != "" {
+					// 创建唯一键来去重
+					key := fmt.Sprintf("%s_%d_%d", chunk.Web.Uri, support.Segment.StartIndex, support.Segment.EndIndex)
+					if !seenAnnotations[key] {
+						annotation := types.Annotations{
+							Type:       "url_citation",
+							Url:        chunk.Web.Uri,
+							Title:      chunk.Web.Title,
+							StartIndex: support.Segment.StartIndex,
+							EndIndex:   support.Segment.EndIndex,
+						}
+						annotations = append(annotations, annotation)
+						seenAnnotations[key] = true
+					}
+				}
+			}
+		}
+	}
+
+	return annotations
 }
 
 type GeminiChatPromptFeedback struct {
@@ -547,6 +677,7 @@ func OpenAIToGeminiChatContent(openaiContents []types.ChatCompletionMessage) ([]
 					FunctionCall: &GeminiFunctionCall{
 						Name: toolCall.Function.Name,
 						Args: args,
+						Id:   toolCall.Id,
 					},
 				})
 
@@ -568,12 +699,20 @@ func OpenAIToGeminiChatContent(openaiContents []types.ChatCompletionMessage) ([]
 				continue
 			}
 
+			// 构建 ID 字段（如果有 ToolCallID）
+			var idField json.RawMessage
+			if openaiContent.ToolCallID != "" {
+				if idBytes, err := json.Marshal(openaiContent.ToolCallID); err == nil {
+					idField = idBytes
+				}
+			}
+
 			functionPart := GeminiPart{
 				FunctionResponse: &GeminiFunctionResponse{
 					Name: *openaiContent.Name,
+					ID:   idField,
 					Response: GeminiFunctionResponseContent{
-						Name:    *openaiContent.Name,
-						Content: openaiContent.StringContent(),
+						Output: openaiContent.StringContent(),
 					},
 				},
 			}
@@ -592,8 +731,25 @@ func OpenAIToGeminiChatContent(openaiContents []types.ChatCompletionMessage) ([]
 			openaiMessagePart := openaiContent.ParseContent()
 			imageNum := 0
 			for _, openaiPart := range openaiMessagePart {
+				// 处理 thinking 和 redacted_thinking 类型
+				if openaiPart.Type == "thinking" || openaiPart.Type == "redacted_thinking" {
+					if openaiPart.ThinkingSignature != "" {
+						var sigField json.RawMessage
+						if sigBytes, err := json.Marshal(openaiPart.ThinkingSignature); err == nil {
+							sigField = sigBytes
+						}
+						content.Parts = append(content.Parts, GeminiPart{
+							Text:             openaiPart.Thinking,
+							Thought:          true,
+							ThoughtSignature: sigField,
+						})
+					}
+					continue
+				}
+
 				if openaiPart.Type == types.ContentTypeText {
-					if openaiPart.Text == "" {
+					// 过滤纯空白文本
+					if isEmptyOrOnlyNewlines(openaiPart.Text) {
 						continue
 					}
 					imageSymbols := ImageSymbolAcMachines.MultiPatternSearch([]rune(openaiPart.Text), false)
@@ -776,7 +932,106 @@ type GeminiImagePrediction struct {
 	SafetyAttributes   any    `json:"safetyAttributes,omitempty"`
 }
 
+// Veo 3.0 Video Generation Types
+type VeoVideoRequest struct {
+	Instances  []VeoVideoInstance  `json:"instances"`
+	Parameters *VeoVideoParameters `json:"parameters,omitempty"`
+}
+
+type VeoVideoInstance struct {
+	Prompt string `json:"prompt"`
+}
+
+type VeoVideoParameters struct {
+	AspectRatio     string `json:"aspectRatio,omitempty"`     // e.g., "16:9"
+	NegativePrompt  string `json:"negativePrompt,omitempty"`  // e.g., "cartoon, drawing, low quality"
+	SampleCount     int    `json:"sampleCount,omitempty"`     // Number of videos to generate
+	DurationSeconds int    `json:"durationSeconds,omitempty"` // Video duration
+}
+
+// Veo 3.0 Long Running Operation Response
+type VeoLongRunningResponse struct {
+	Name     string                 `json:"name"` // Operation name for polling
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	Done     bool                   `json:"done"`
+	Response *VeoVideoResponse      `json:"response,omitempty"`
+	Error    *VeoOperationError     `json:"error,omitempty"`
+}
+
+type VeoVideoResponse struct {
+	GenerateVideoResponse *VeoGenerateVideoResponse `json:"generateVideoResponse,omitempty"`
+}
+
+type VeoGenerateVideoResponse struct {
+	GeneratedSamples []VeoGeneratedSample `json:"generatedSamples"`
+}
+
+type VeoGeneratedSample struct {
+	Video *VeoVideoData `json:"video"`
+}
+
+type VeoVideoData struct {
+	Uri      string `json:"uri"`      // Download URI
+	MimeType string `json:"mimeType"` // e.g., "video/mp4"
+}
+
+type VeoOperationError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Status  string `json:"status"`
+}
+
 func isEmptyOrOnlyNewlines(s string) bool {
 	trimmed := strings.TrimSpace(s)
 	return trimmed == ""
+}
+
+// checks if googleSearch tool has "show" parameter
+func showGoogleSearchMeta(request *types.ChatCompletionRequest) bool {
+	functions := request.GetFunctions()
+	if functions == nil {
+		return false
+	}
+
+	for _, function := range functions {
+		if function.Name == "googleSearch" && function.Parameters != nil {
+			if paramStr, ok := function.Parameters.(string); ok && paramStr == "show" {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// formats grounding metadata as markdown citation
+func formatGroundingMetadataAsMarkdown(metadata *GeminiGroundingMetadata) string {
+	if metadata == nil || len(metadata.GroundingChunks) == 0 {
+		return ""
+	}
+	var result strings.Builder
+	// Add search queries
+	if len(metadata.WebSearchQueries) > 0 {
+		result.WriteString("> Searched ")
+		for i, query := range metadata.WebSearchQueries {
+			if i > 0 {
+				result.WriteString(" and ")
+			}
+			result.WriteString(fmt.Sprintf(`"%s"`, query))
+		}
+		result.WriteString("\n")
+	}
+	// Add grounding chunks as numbered list
+	linkCount := 0
+	for _, chunk := range metadata.GroundingChunks {
+		if chunk.Web != nil && chunk.Web.Uri != "" {
+			linkCount++
+			title := chunk.Web.Title
+			if title == "" {
+				title = chunk.Web.Uri
+			}
+			result.WriteString(fmt.Sprintf("> %d. [%s](%s)\n", linkCount, title, chunk.Web.Uri))
+		}
+	}
+	return result.String()
 }

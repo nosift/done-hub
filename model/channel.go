@@ -2,10 +2,12 @@ package model
 
 import (
 	"crypto/md5"
+	"done-hub/common/cache"
 	"done-hub/common/config"
 	"done-hub/common/logger"
 	"done-hub/common/utils"
 	"encoding/hex"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -28,7 +30,7 @@ type Channel struct {
 	Balance            float64 `json:"balance"` // in USD
 	BalanceUpdatedTime int64   `json:"balance_updated_time" gorm:"bigint"`
 	Models             string  `json:"models" form:"models"`
-	Group              string  `json:"group" form:"group" gorm:"type:varchar(32);default:'default'"`
+	Group              string  `json:"group" form:"group" gorm:"type:varchar(255);default:'default'"`
 	Tag                string  `json:"tag" form:"tag" gorm:"type:varchar(32);default:''"`
 	UsedQuota          int64   `json:"used_quota" gorm:"bigint;default:0"`
 	ModelMapping       *string `json:"model_mapping" gorm:"type:text"`
@@ -72,7 +74,8 @@ var allowedChannelOrderFields = map[string]bool{
 type SearchChannelsParams struct {
 	Channel
 	PaginationParams
-	FilterTag int `json:"filter_tag" form:"filter_tag"`
+	FilterTag int    `json:"filter_tag" form:"filter_tag"`
+	BaseURL   string `json:"base_url" form:"base_url"`
 }
 
 func GetChannelsList(params *SearchChannelsParams) (*DataResult[Channel], error) {
@@ -124,6 +127,11 @@ func GetChannelsList(params *SearchChannelsParams) (*DataResult[Channel], error)
 		tagDB = tagDB.Where("test_model LIKE ?", params.TestModel+"%")
 	}
 
+	if params.BaseURL != "" {
+		db = db.Where("base_url LIKE ?", "%"+params.BaseURL+"%")
+		tagDB = tagDB.Where("base_url LIKE ?", "%"+params.BaseURL+"%")
+	}
+
 	if params.Tag != "" {
 		db = db.Where("tag = ?", params.Tag)
 		tagDB = tagDB.Where("tag = ?", params.Tag)
@@ -161,12 +169,18 @@ func GetChannelsByTag(tag string) ([]*Channel, error) {
 }
 
 func DeleteChannelTag(channelId int) error {
-	err := DB.Model(&Channel{}).Where("id = ?", channelId).Update("tag", "").Error
-	return err
+	result := DB.Model(&Channel{}).Where("id = ?", channelId).Update("tag", "")
+	if result.Error == nil && result.RowsAffected > 0 {
+		ChannelGroup.Load()
+	}
+	return result.Error
 }
 
 func BatchDeleteChannel(ids []int) (int64, error) {
 	result := DB.Where("id IN ?", ids).Delete(&Channel{})
+	if result.Error == nil && result.RowsAffected > 0 {
+		ChannelGroup.Load()
+	}
 	return result.RowsAffected, result.Error
 }
 
@@ -280,6 +294,78 @@ func BatchAddUserGroupToChannels(params *BatchChannelsParams) (int64, error) {
 	return count, nil
 }
 
+// BatchAddModelToChannels 批量添加模型到渠道
+func BatchAddModelToChannels(params *BatchChannelsParams) (int64, error) {
+	var count int64
+
+	var channels []*Channel
+	err := DB.Select("id, models").Find(&channels, "id IN ?", params.Ids).Error
+	if err != nil {
+		return 0, err
+	}
+
+	// 解析要添加的模型列表（支持逗号分隔的多个模型）
+	newModels := strings.Split(params.Value, ",")
+	var trimmedNewModels []string
+	for _, model := range newModels {
+		model = strings.TrimSpace(model)
+		if model != "" {
+			trimmedNewModels = append(trimmedNewModels, model)
+		}
+	}
+
+	if len(trimmedNewModels) == 0 {
+		return 0, nil
+	}
+
+	for _, channel := range channels {
+		// 获取当前渠道的模型列表
+		currentModels := strings.Split(channel.Models, ",")
+
+		// 清理空字符串并去重
+		uniqueModels := make(map[string]bool)
+		for _, model := range currentModels {
+			model = strings.TrimSpace(model)
+			if model != "" {
+				uniqueModels[model] = true
+			}
+		}
+
+		// 检查要添加的模型，只添加不存在的模型
+		hasNewModel := false
+		for _, newModel := range trimmedNewModels {
+			if !uniqueModels[newModel] {
+				uniqueModels[newModel] = true
+				hasNewModel = true
+			}
+		}
+
+		// 如果有新模型添加，则更新渠道
+		if hasNewModel {
+			// 重新构建模型字符串
+			var modelSlice []string
+			for model := range uniqueModels {
+				modelSlice = append(modelSlice, model)
+			}
+
+			newModelString := strings.Join(modelSlice, ",")
+
+			// 更新渠道模型
+			err = DB.Model(&Channel{}).Where("id = ?", channel.Id).Update("models", newModelString).Error
+			if err != nil {
+				return count, err
+			}
+			count++
+		}
+	}
+
+	if count > 0 {
+		ChannelGroup.Load()
+	}
+
+	return count, nil
+}
+
 func (c *Channel) SetProxy() {
 	if c.Proxy == nil {
 		return
@@ -336,6 +422,7 @@ func (channel *Channel) Update(overwrite bool) error {
 
 	if err == nil {
 		ChannelGroup.Load()
+		ChannelGroup.ClearChannelCooldowns(channel.Id)
 	}
 
 	return err
@@ -408,7 +495,13 @@ func UpdateChannelStatusById(id int, status int) {
 
 	tx.Commit()
 
-	go ChannelGroup.ChangeStatus(id, status == config.ChannelStatusEnabled)
+	isEnabled := status == config.ChannelStatusEnabled
+	go ChannelGroup.ChangeStatus(id, isEnabled)
+
+	// 启用渠道时清除冻结缓存
+	if isEnabled {
+		ChannelGroup.ClearChannelCooldowns(id)
+	}
 }
 
 func UpdateChannelUsedQuota(id int, quota int) {
@@ -426,8 +519,38 @@ func updateChannelUsedQuota(id int, quota int) {
 	}
 }
 
+func ClearChannelTokenCache(channelId int) {
+	cacheKeys := []string{
+		fmt.Sprintf("api_token:codex:%d", channelId),
+		fmt.Sprintf("api_token:geminicli:%d", channelId),
+		fmt.Sprintf("api_token:claudecode:%d", channelId),
+	}
+
+	for _, key := range cacheKeys {
+		if err := cache.DeleteCache(key); err != nil {
+			logger.SysError(fmt.Sprintf("failed to clear token cache %s: %v", key, err))
+		}
+	}
+}
+
+func UpdateChannelKey(id int, key string) error {
+	err := DB.Model(&Channel{}).Where("id = ?", id).Update("key", key).Error
+	if err != nil {
+		logger.SysError("failed to update channel key: " + err.Error())
+		return err
+	}
+
+	ClearChannelTokenCache(id)
+	ChannelGroup.Load()
+
+	return nil
+}
+
 func DeleteDisabledChannel() (int64, error) {
 	result := DB.Where("status = ? or status = ?", config.ChannelStatusAutoDisabled, config.ChannelStatusManuallyDisabled).Delete(&Channel{})
+	if result.Error == nil && result.RowsAffected > 0 {
+		ChannelGroup.Load()
+	}
 	return result.RowsAffected, result.Error
 }
 

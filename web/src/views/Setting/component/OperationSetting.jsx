@@ -44,6 +44,7 @@ const OperationSetting = () => {
     TopUpLink: '',
     ChatLink: '',
     ChatLinks: '',
+    BuiltinChatEnabled: 'true',
     QuotaPerUnit: 0,
     AutomaticDisableChannelEnabled: 'false',
     AutomaticEnableChannelEnabled: 'false',
@@ -166,10 +167,12 @@ const OperationSetting = () => {
         getOptions()
         await loadStatus()
       } else {
-        showError(message)
+        // 不在这里显示错误，而是抛出异常让调用者处理
+        throw new Error(message)
       }
     } catch (error) {
-      return
+      setLoading(false)
+      throw error
     }
 
     setLoading(false)
@@ -179,8 +182,12 @@ const OperationSetting = () => {
     let { name, value } = event.target
 
     if (name.endsWith('Enabled')) {
-      await updateOption(name, value)
-      showSuccess('设置成功！')
+      try {
+        await updateOption(name, value)
+        showSuccess('设置成功！')
+      } catch (error) {
+        showError(error.message || '设置失败')
+      }
     } else {
       setInputs((inputs) => ({ ...inputs, [name]: value }))
     }
@@ -213,6 +220,9 @@ const OperationSetting = () => {
               return
             }
             await updateOption('ChatLinks', inputs.ChatLinks)
+          }
+          if (originInputs['BuiltinChatEnabled'] !== inputs.BuiltinChatEnabled) {
+            await updateOption('BuiltinChatEnabled', inputs.BuiltinChatEnabled)
           }
           break
         case 'quota':
@@ -568,6 +578,24 @@ const OperationSetting = () => {
                 }
               />
             </Tooltip>
+            <Tooltip
+              title={t('setting_index.operationSettings.generalSettings.modelNameCaseInsensitiveTooltip')}
+              placement="top"
+              enterDelay={300}
+              arrow
+            >
+              <FormControlLabel
+                label={t('setting_index.operationSettings.generalSettings.modelNameCaseInsensitive')}
+                control={
+                  <Checkbox
+                    checked={dataLoaded ? inputs.ModelNameCaseInsensitiveEnabled === 'true' : false}
+                    onChange={handleInputChange}
+                    name="ModelNameCaseInsensitiveEnabled"
+                    disabled={!dataLoaded || loading}
+                  />
+                }
+              />
+            </Tooltip>
           </Stack>
           <Button
             variant="contained"
@@ -865,6 +893,7 @@ const OperationSetting = () => {
                 id="QuotaForNewUser"
                 name="QuotaForNewUser"
                 type="number"
+                inputProps={{ step: 1, min: 0 }}
                 value={inputs.QuotaForNewUser}
                 onChange={handleInputChange}
                 label={t('setting_index.operationSettings.quotaSettings.quotaForNewUser.label')}
@@ -880,6 +909,7 @@ const OperationSetting = () => {
                 id="PreConsumedQuota"
                 name="PreConsumedQuota"
                 type="number"
+                inputProps={{ step: 1, min: 0 }}
                 value={inputs.PreConsumedQuota}
                 onChange={handleInputChange}
                 label={t('setting_index.operationSettings.quotaSettings.preConsumedQuota.label')}
@@ -894,6 +924,7 @@ const OperationSetting = () => {
                 id="QuotaForInviter"
                 name="QuotaForInviter"
                 type="number"
+                inputProps={{ step: 1, min: 0 }}
                 label={t('setting_index.operationSettings.quotaSettings.quotaForInviter.label')}
                 value={inputs.QuotaForInviter}
                 onChange={handleInputChange}
@@ -954,6 +985,7 @@ const OperationSetting = () => {
                 id="QuotaForInvitee"
                 name="QuotaForInvitee"
                 type="number"
+                inputProps={{ step: 1, min: 0 }}
                 label={t('setting_index.operationSettings.quotaSettings.quotaForInvitee.label')}
                 value={inputs.QuotaForInvitee}
                 onChange={handleInputChange}
@@ -1050,6 +1082,18 @@ const OperationSetting = () => {
             <div dangerouslySetInnerHTML={{ __html: t('setting_index.operationSettings.chatLinkSettings.info') }}/>
           </Alert>
           <Stack justifyContent="flex-start" alignItems="flex-start" spacing={2}>
+            <FormControlLabel
+              sx={{ marginLeft: '0px' }}
+              label={t('setting_index.operationSettings.chatLinkSettings.builtinChatEnabled')}
+              control={
+                <Checkbox
+                  checked={dataLoaded ? inputs.BuiltinChatEnabled === 'true' : false}
+                  onChange={handleInputChange}
+                  name="BuiltinChatEnabled"
+                  disabled={!dataLoaded || loading}
+                />
+              }
+            />
             <ChatLinksDataGrid links={inputs.ChatLinks || '[]'} onChange={handleInputChange}/>
 
             <Button

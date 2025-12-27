@@ -18,14 +18,16 @@ type Client struct {
 // FormPay 表单支付
 func (c *Client) FormPay(args *PayArgs) (string, map[string]string, error) {
 	formPayArgs := map[string]string{
-		"type":         string(args.Type),
 		"pid":          c.PartnerID,
 		"out_trade_no": args.OutTradeNo,
 		"notify_url":   args.NotifyUrl,
 		"return_url":   args.ReturnUrl,
 		"name":         args.Name,
 		"money":        args.Money,
-		// "device":       string(args.Device),
+	}
+
+	if args.Type != "" {
+		formPayArgs["type"] = string(args.Type)
 	}
 
 	formPayArgs["sign"] = c.Sign(formPayArgs)

@@ -12,6 +12,7 @@ var Commit = "unknown"
 var BuildTime = "unknown"
 var SystemName = "Done Hub"
 var ServerAddress = "http://localhost:3000"
+var PaymentCallbackAddress = ""
 var Debug = false
 
 var OldTokenMaxId = 0
@@ -43,9 +44,11 @@ var WeChatAuthEnabled = false
 var LarkAuthEnabled = false
 var TurnstileCheckEnabled = false
 var RegisterEnabled = true
+var InviteCodeRegisterEnabled = false
 var OIDCAuthEnabled = false
 var LinuxDoOAuthEnabled = false
 var LinuxDoOAuthTrustLevelEnabled = false
+var LinuxDoOAuthDynamicTrustLevel = true // 动态限制已注册用户的信任等级，关闭后已注册用户不受新等级限制影响
 
 // 是否开启内容审查
 var EnableSafe = false
@@ -129,6 +132,9 @@ var SafeKeyWords = []string{
 // mj
 var MjNotifyEnabled = false
 
+// 内置聊天功能开关
+var BuiltinChatEnabled = true
+
 var EmailDomainRestrictionEnabled = false
 var EmailDomainWhitelist = []string{
 	"gmail.com",
@@ -197,6 +203,9 @@ var RetryTimeOut = 10
 
 // 统一请求响应模型（响应中显示用户请求的原始模型名称）
 var UnifiedRequestResponseModelEnabled = false
+
+// 模型名称大小写不敏感匹配
+var ModelNameCaseInsensitiveEnabled = false
 
 var DefaultChannelWeight = uint(1)
 var RetryCooldownSeconds = 5
@@ -316,6 +325,10 @@ const (
 	ChannelTypeAzureDatabricks = 54
 	ChannelTypeAzureV1         = 55
 	ChannelTypeXAI             = 56
+	ChannelTypeGeminiCli       = 57
+	ChannelTypeClaudeCode      = 58
+	ChannelTypeCodex           = 59
+	ChannelTypeAntigravity     = 60
 )
 
 const (

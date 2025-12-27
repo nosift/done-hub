@@ -2,7 +2,6 @@ package relay
 
 import (
 	"done-hub/common"
-	"done-hub/common/logger"
 	"done-hub/common/requester"
 	providersBase "done-hub/providers/base"
 	"done-hub/relay/relay_util"
@@ -139,14 +138,19 @@ func (r *relayResponses) chatToResponseStreamClient(stream requester.StreamReade
 	// 创建一个done channel用于通知处理完成
 	done := make(chan struct{})
 
-	defer stream.Close()
+	defer func() {
+		stream.Close()
+	}()
+
 	var isFirstResponse bool
 
 	converter := relay_util.NewOpenAIResponsesStreamConverter(r.c, &r.responsesRequest, r.provider.GetUsage())
 
 	// 在新的goroutine中处理stream数据
 	gopool.Go(func() {
-		defer close(done)
+		defer func() {
+			close(done)
+		}()
 
 		for {
 			select {
@@ -179,8 +183,6 @@ func (r *relayResponses) chatToResponseStreamClient(stream requester.StreamReade
 						// 客户端正常，发送错误信息
 						converter.ProcessError(err.Error())
 					}
-
-					logger.LogError(r.c.Request.Context(), "Stream err:"+err.Error())
 				} else {
 					// 要发送最后的完成状态
 					converter.ProcessStreamData("[DONE]")

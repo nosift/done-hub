@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"done-hub/common"
 	"done-hub/common/config"
+	"done-hub/common/model_utils"
 	"done-hub/common/requester"
 	"done-hub/providers/base"
 	"done-hub/types"
@@ -241,16 +242,22 @@ func (h *OpenAIStreamHandler) HandlerChatStream(rawLine *[]byte, dataChan chan s
 }
 
 func otherProcessing(request *types.ChatCompletionRequest, otherArg string) {
-	matched, _ := regexp.MatchString(`^o[1-9]`, request.Model)
-	if matched && request.MaxTokens > 0 {
-		request.MaxCompletionTokens = request.MaxTokens
-		request.MaxTokens = 0
-
-		if strings.HasPrefix(request.Model, "o3") {
+	matched, _ := regexp.MatchString(`(?i)^o[1-9]`, request.Model)
+	if matched || model_utils.HasPrefixCaseInsensitive(request.Model, "gpt-5") {
+		if request.MaxTokens > 0 {
+			request.MaxCompletionTokens = request.MaxTokens
+			request.MaxTokens = 0
+		}
+		if request.Model != "gpt-5-chat-latest" {
 			request.Temperature = nil
-			if otherArg != "" {
-				request.ReasoningEffort = &otherArg
-			}
+		}
+		// 只有当 otherArg 不为空且没有已存在的 Reasoning 设置时，才使用 otherArg 设置 ReasoningEffort
+		if otherArg != "" && request.Reasoning == nil {
+			request.ReasoningEffort = &otherArg
+		}
+		// 如果有 Reasoning 设置，优先使用 Reasoning.Effort 设置 ReasoningEffort
+		if request.Reasoning != nil && request.Reasoning.Effort != "" {
+			request.ReasoningEffort = &request.Reasoning.Effort
 		}
 	}
 }

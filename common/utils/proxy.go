@@ -58,6 +58,12 @@ func Socks5ProxyFunc(ctx context.Context, network, addr string) (net.Conn, error
 		return nil, fmt.Errorf("error creating proxy dialer: %w", err)
 	}
 
+	// 尝试使用 ContextDialer 以支持超时控制
+	if contextDialer, ok := proxyDialer.(proxy.ContextDialer); ok {
+		return contextDialer.DialContext(ctx, network, addr)
+	}
+
+	// 降级到普通 Dial (不支持 context 超时)
 	return proxyDialer.Dial(network, addr)
 }
 

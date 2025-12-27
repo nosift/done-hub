@@ -20,6 +20,8 @@ type Quota struct {
 	promptTokens     int
 	price            model.Price
 	groupName        string
+	isBackupGroup    bool // 新增字段记录是否使用备用分组
+	backupGroupName  string
 	groupRatio       float64
 	inputRatio       float64
 	outputRatio      float64
@@ -36,22 +38,37 @@ type Quota struct {
 }
 
 func NewQuota(c *gin.Context, modelName string, promptTokens int) *Quota {
+	isBackupGroup := c.GetBool("is_backupGroup")
+
 	quota := &Quota{
-		modelName:    modelName,
-		promptTokens: promptTokens,
-		userId:       c.GetInt("id"),
-		channelId:    c.GetInt("channel_id"),
-		tokenId:      c.GetInt("token_id"),
-		HandelStatus: false,
+		modelName:     modelName,
+		promptTokens:  promptTokens,
+		userId:        c.GetInt("id"),
+		channelId:     c.GetInt("channel_id"),
+		tokenId:       c.GetInt("token_id"),
+		HandelStatus:  false,
+		isBackupGroup: isBackupGroup, // 记录是否使用备用分组
 	}
 
 	quota.price = *model.PricingInstance.GetPrice(quota.modelName)
-	quota.groupRatio = c.GetFloat64("group_ratio")
-	quota.groupName = c.GetString("token_group")
+
+	// 记录分组信息用于日志
+	if isBackupGroup {
+		// 发生了降级：记录原始分组 → 实际使用的分组
+		quota.groupName = c.GetString("original_token_group") // 降级链的起点
+		quota.backupGroupName = c.GetString("token_group")    // 实际使用的分组
+	} else {
+		// 没有降级：只记录使用的分组
+		quota.groupName = c.GetString("token_group")
+		quota.backupGroupName = ""
+	}
+
+	quota.groupRatio = c.GetFloat64("group_ratio") // 这里的倍率已经在 common.go 中正确设置了
 	quota.inputRatio = quota.price.GetInput() * quota.groupRatio
 	quota.outputRatio = quota.price.GetOutput() * quota.groupRatio
 
 	return quota
+
 }
 
 func (q *Quota) PreQuotaConsumption() *types.OpenAIErrorWithStatusCode {
@@ -76,13 +93,13 @@ func (q *Quota) PreQuotaConsumption() *types.OpenAIErrorWithStatusCode {
 	}
 
 	if userQuota < q.preConsumedQuota {
-		return common.ErrorWrapper(errors.New("user quota is not enough"), "insufficient_user_quota", http.StatusPaymentRequired)
+		return common.ErrorWrapperLocal(errors.New("user quota is not enough"), "insufficient_user_quota", http.StatusPaymentRequired)
 	}
 
 	if q.preConsumedQuota > 0 {
 		err := model.PreConsumeTokenQuota(q.tokenId, q.preConsumedQuota)
 		if err != nil {
-			return common.ErrorWrapper(err, "pre_consume_token_quota_failed", http.StatusForbidden)
+			return common.ErrorWrapperLocal(err, "pre_consume_token_quota_failed", http.StatusForbidden)
 		}
 		_ = model.CacheUpdateUserQuota(q.userId)
 		q.HandelStatus = true
@@ -195,11 +212,13 @@ func (q *Quota) GetInputRatio() float64 {
 
 func (q *Quota) GetLogMeta(usage *types.Usage) map[string]any {
 	meta := map[string]any{
-		"group_name":   q.groupName,
-		"price_type":   q.price.Type,
-		"group_ratio":  q.groupRatio,
-		"input_ratio":  q.price.GetInput(),
-		"output_ratio": q.price.GetOutput(),
+		"group_name":        q.groupName,
+		"backup_group_name": q.backupGroupName,
+		"is_backup_group":   q.isBackupGroup, // 添加是否使用备用分组的标识
+		"price_type":        q.price.Type,
+		"group_ratio":       q.groupRatio,
+		"input_ratio":       q.price.GetInput(),
+		"output_ratio":      q.price.GetOutput(),
 	}
 
 	firstResponseTime := q.GetFirstResponseTime()

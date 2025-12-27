@@ -3,6 +3,7 @@ package gemini
 import (
 	"done-hub/common"
 	"done-hub/common/config"
+	"done-hub/common/model_utils"
 	"done-hub/common/requester"
 	"done-hub/common/utils"
 	"done-hub/providers/base"
@@ -122,10 +123,10 @@ func (p *GeminiProvider) getChatRequest(geminiRequest *GeminiChatRequest, isRela
 		body = geminiRequest
 	}
 
-	// 创建请求
-	req, err := p.Requester.NewRequest(http.MethodPost, fullRequestURL, p.Requester.WithBody(body), p.Requester.WithHeader(headers))
-	if err != nil {
-		return nil, common.ErrorWrapper(err, "new_request_failed", http.StatusInternalServerError)
+	// 使用BaseProvider的统一方法创建请求，支持自定义参数处理
+	req, errWithCode := p.NewRequestWithCustomParams(http.MethodPost, fullRequestURL, body, headers, geminiRequest.Model)
+	if errWithCode != nil {
+		return nil, errWithCode
 	}
 
 	return req, nil
@@ -150,6 +151,9 @@ func (p *GeminiProvider) getActionURL(geminiRequest *GeminiChatRequest) string {
 			return "streamGenerateContent?alt=sse"
 		}
 		return "generateContent"
+	case "predictLongRunning":
+		// Veo 3.0 视频生成
+		return "predictLongRunning"
 	default:
 		// 对于其他 action，直接使用原始值
 		if geminiRequest.Stream && !strings.Contains(action, "stream") {
@@ -174,6 +178,12 @@ func CleanGeminiRequestData(rawData []byte, isVertexAI bool) ([]byte, error) {
 
 		for _, content := range contents {
 			if contentMap, ok := content.(map[string]interface{}); ok {
+				// 确保每个 content 都有 role 字段（Vertex AI 和 Gemini 都需要）
+				if _, hasRole := contentMap["role"]; !hasRole {
+					// 如果没有 role 字段，默认设置为 "user"
+					contentMap["role"] = "user"
+				}
+
 				if parts, ok := contentMap["parts"].([]interface{}); ok {
 					for _, part := range parts {
 						if partMap, ok := part.(map[string]interface{}); ok {
@@ -355,12 +365,13 @@ func validateAndFixFunctionCallSequence(contents []interface{}, isVertexAI bool)
 	return fixedContents
 }
 
-// cleanSchemaRecursively 递归清理 schema 对象中的 $schema 字段
+// cleanSchemaRecursively 递归清理 schema 对象中的 $schema 和 additionalProperties 字段
 func cleanSchemaRecursively(obj interface{}) {
 	switch v := obj.(type) {
 	case map[string]interface{}:
-		// 删除 $schema 字段
+		// 删除 Gemini API 不支持的字段
 		delete(v, "$schema")
+		delete(v, "additionalProperties")
 
 		// 递归处理所有值
 		for _, value := range v {
@@ -414,7 +425,7 @@ func ConvertFromChatOpenai(request *types.ChatCompletionRequest) (*GeminiChatReq
 		},
 	}
 
-	if strings.HasPrefix(request.Model, "gemini-2.0-flash-exp") {
+	if model_utils.HasPrefixCaseInsensitive(request.Model, "gemini-2.0-flash-exp") || model_utils.HasPrefixCaseInsensitive(request.Model, "gemini-2.5-flash-image") || model_utils.HasPrefixCaseInsensitive(request.Model, "gemini-3-pro-image") {
 		geminiRequest.GenerationConfig.ResponseModalities = []string{"Text", "Image"}
 	}
 
@@ -422,13 +433,29 @@ func ConvertFromChatOpenai(request *types.ChatCompletionRequest) (*GeminiChatReq
 		geminiRequest.GenerationConfig.ResponseModalities = []string{"AUDIO"}
 	}
 
-	if request.Reasoning != nil {
-		geminiRequest.GenerationConfig.ThinkingConfig = &ThinkingConfig{
-			ThinkingBudget: &request.Reasoning.MaxTokens,
+	// 检查是否应该启用 thinking（历史消息约束检查）
+	canEnableThinking := shouldEnableThinking(request.Messages)
+
+	if request.Reasoning != nil && canEnableThinking {
+		budget := request.Reasoning.MaxTokens
+		maxTokens := request.MaxTokens
+
+		// 验证 thinkingBudget < maxOutputTokens
+		if maxTokens > 0 && budget >= maxTokens {
+			// 自动下调 budget
+			budget = maxTokens - 1
+		}
+
+		// 如果下调后 budget <= 0，则不启用 thinking
+		if budget > 0 {
+			geminiRequest.GenerationConfig.ThinkingConfig = &ThinkingConfig{
+				ThinkingBudget:  &budget,
+				IncludeThoughts: true, // 当有 Reasoning 参数时，启用思考输出
+			}
 		}
 	}
 
-	if config.GeminiSettingsInstance.GetOpenThink(request.Model) {
+	if config.GeminiSettingsInstance.GetOpenThink(request.Model) && canEnableThinking {
 		if geminiRequest.GenerationConfig.ThinkingConfig == nil {
 			geminiRequest.GenerationConfig.ThinkingConfig = &ThinkingConfig{}
 		}
@@ -494,6 +521,7 @@ func ConvertFromChatOpenai(request *types.ChatCompletionRequest) (*GeminiChatReq
 
 	if systemContent != "" {
 		geminiRequest.SystemInstruction = &GeminiChatContent{
+			Role: "user",
 			Parts: []GeminiPart{
 				{Text: systemContent},
 			},
@@ -616,7 +644,7 @@ func ConvertToChatOpenai(provider base.ProviderInterface, response *GeminiChatRe
 	}
 
 	usage := provider.GetUsage()
-	*usage = ConvertOpenAIUsage(response.UsageMetadata)
+	*usage = ConvertOpenAIUsageWithFallback(response.UsageMetadata, response)
 	openaiResponse.Usage = usage
 
 	return
@@ -704,7 +732,22 @@ func (h *GeminiStreamHandler) convertToOpenaiStream(geminiResponse *GeminiChatRe
 	}
 
 	// 和ExecutableCode的tokens共用，所以跳过
-	if geminiResponse.UsageMetadata == nil {
+	// 检查是否有有效的 UsageMetadata
+	hasValidUsage := false
+	if geminiResponse.UsageMetadata != nil &&
+		(geminiResponse.UsageMetadata.TotalTokenCount > 0 || geminiResponse.UsageMetadata.PromptTokenCount > 0) {
+		hasValidUsage = true
+	}
+
+	if !hasValidUsage {
+		// 没有有效的 UsageMetadata，尝试从响应内容中统计图片数量
+		imageCount := countImagesInResponse(geminiResponse)
+		if imageCount > 0 {
+			// 按图片数量计费：每张图片 1290 tokens
+			const tokensPerImage = 1290
+			h.Usage.CompletionTokens = imageCount * tokensPerImage
+			h.Usage.TotalTokens = h.Usage.PromptTokens + h.Usage.CompletionTokens
+		}
 		return
 	}
 
@@ -770,29 +813,72 @@ var modelAdjustRatios = map[string]int{
 
 func ConvertOpenAIUsage(geminiUsage *GeminiUsageMetadata) types.Usage {
 	if geminiUsage == nil {
-		return types.Usage{}
+		return types.Usage{
+			PromptTokens:     0,
+			CompletionTokens: 0,
+			TotalTokens:      0,
+		}
 	}
 
-	// 计算 completion tokens，确保不为负数
-	completionTokens := geminiUsage.CandidatesTokenCount + geminiUsage.ThoughtsTokenCount
-	if completionTokens < 0 {
-		completionTokens = 0
-	}
-
-	// 如果 TotalTokenCount 为 0 但有 PromptTokenCount，则计算总数
-	totalTokens := geminiUsage.TotalTokenCount
-	if totalTokens == 0 && geminiUsage.PromptTokenCount > 0 {
-		totalTokens = geminiUsage.PromptTokenCount + completionTokens
-	}
-
-	return types.Usage{
+	usage := types.Usage{
 		PromptTokens:     geminiUsage.PromptTokenCount,
-		CompletionTokens: completionTokens,
-		TotalTokens:      totalTokens,
+		CompletionTokens: geminiUsage.CandidatesTokenCount + geminiUsage.ThoughtsTokenCount,
+		TotalTokens:      geminiUsage.TotalTokenCount,
 
 		CompletionTokensDetails: types.CompletionTokensDetails{
 			ReasoningTokens: geminiUsage.ThoughtsTokenCount,
 		},
+	}
+
+	for _, p := range geminiUsage.PromptTokensDetails {
+		switch p.Modality {
+		case "TEXT":
+			usage.PromptTokensDetails.TextTokens = p.TokenCount
+		case "AUDIO":
+			usage.PromptTokensDetails.AudioTokens = p.TokenCount
+		}
+	}
+
+	for _, c := range geminiUsage.CandidatesTokensDetails {
+		switch c.Modality {
+		case "TEXT":
+			usage.CompletionTokensDetails.TextTokens = c.TokenCount
+		case "AUDIO":
+			usage.CompletionTokensDetails.AudioTokens = c.TokenCount
+		case "IMAGE":
+			usage.CompletionTokensDetails.ImageTokens = c.TokenCount
+		}
+	}
+
+	return usage
+}
+
+// ConvertOpenAIUsageWithFallback 转换 UsageMetadata，如果没有有效的 token 统计则使用图片统计兜底
+func ConvertOpenAIUsageWithFallback(geminiUsage *GeminiUsageMetadata, response *GeminiChatResponse) types.Usage {
+	// 检查是否有有效的 UsageMetadata
+	hasValidUsage := geminiUsage != nil &&
+		(geminiUsage.TotalTokenCount > 0 || geminiUsage.PromptTokenCount > 0)
+
+	if hasValidUsage {
+		return ConvertOpenAIUsage(geminiUsage)
+	}
+
+	// 没有有效的 UsageMetadata，尝试从响应内容中统计图片数量
+	imageCount := countImagesInResponse(response)
+	if imageCount > 0 {
+		const tokensPerImage = 1290
+		return types.Usage{
+			PromptTokens:     0,
+			CompletionTokens: imageCount * tokensPerImage,
+			TotalTokens:      imageCount * tokensPerImage,
+		}
+	}
+
+	// 完全没有数据，返回空 Usage
+	return types.Usage{
+		PromptTokens:     0,
+		CompletionTokens: 0,
+		TotalTokens:      0,
 	}
 }
 
@@ -813,4 +899,54 @@ func (p *GeminiProvider) pluginHandle(request *GeminiChatRequest) {
 		CodeExecution: &GeminiCodeExecution{},
 	})
 
+}
+
+// checkLastAssistantFirstBlockType 检查最后一条 assistant 消息的第一个 block 类型
+// 返回值：第一个 block 的类型，如果没有 assistant 消息或没有数组格式的 content 则返回空字符串
+// 注意：只检查数组格式的 content
+func checkLastAssistantFirstBlockType(messages []types.ChatCompletionMessage) string {
+	// 从后往前遍历，找到最后一条 assistant 消息
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg := messages[i]
+		if msg.Role != types.ChatMessageRoleAssistant {
+			continue
+		}
+
+		// 检查 content 是否为数组格式
+		// 如果 content 是字符串，跳过这条消息
+		if _, ok := msg.Content.(string); ok {
+			continue
+		}
+
+		// 解析 content（此时 content 应该是数组格式）
+		parts := msg.ParseContent()
+		if len(parts) == 0 {
+			continue
+		}
+
+		// 返回第一个 block 的类型
+		return parts[0].Type
+	}
+
+	return ""
+}
+
+// shouldEnableThinking 检查是否应该启用 thinking
+// 如果启用 thinking 但历史 assistant 消息不以 thinking/redacted_thinking 开头，
+// 则不应该下发 thinkingConfig（避免下游 400 错误）
+func shouldEnableThinking(messages []types.ChatCompletionMessage) bool {
+	firstBlockType := checkLastAssistantFirstBlockType(messages)
+
+	// 如果没有历史 assistant 消息（firstBlockType 为空），可以启用 thinking
+	if firstBlockType == "" {
+		return true
+	}
+
+	// 如果第一个 block 是 thinking 或 redacted_thinking，可以启用 thinking
+	if firstBlockType == "thinking" || firstBlockType == "redacted_thinking" {
+		return true
+	}
+
+	// 其他情况，不应该启用 thinking
+	return false
 }

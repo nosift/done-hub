@@ -15,6 +15,7 @@ import (
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type LinuxDoUser struct {
@@ -221,24 +222,30 @@ func LinuxDoOAuth(c *gin.Context) {
 		return
 	}
 
-	if config.LinuxDoOAuthTrustLevelEnabled {
-		if linuxDoUser.TrustLevel < config.LinuxDoOAuthLowestTrustLevel {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "该 LINUX DO 信任等级过低，不允许访问",
-			})
-			return
-		}
-	}
-
 	user := model.User{
 		LinuxDoId:         linuxDoUser.Id,
 		LinuxDoUsername:   linuxDoUser.Username,
 		LinuxDoTrustLevel: linuxDoUser.TrustLevel,
 	}
 
+	// 判断是否为已注册用户
+	isExistingUser := model.IsLinuxDOIdAlreadyTaken(user.LinuxDoId)
+
+	// 信任等级检查：动态限制开启或新用户注册时检查
+	if config.LinuxDoOAuthTrustLevelEnabled {
+		if config.LinuxDoOAuthDynamicTrustLevel || !isExistingUser {
+			if linuxDoUser.TrustLevel < config.LinuxDoOAuthLowestTrustLevel {
+				c.JSON(http.StatusOK, gin.H{
+					"success": false,
+					"message": "该 LINUX DO 信任等级过低，不允许访问",
+				})
+				return
+			}
+		}
+	}
+
 	// Check if user exists
-	if model.IsLinuxDOIdAlreadyTaken(user.LinuxDoId) {
+	if isExistingUser {
 		err := user.FillUserByLinuxDOId()
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
@@ -276,13 +283,36 @@ func LinuxDoOAuth(c *gin.Context) {
 			user.Role = config.RoleCommonUser
 			user.Status = config.UserStatusEnabled
 
+			// 获取推荐码
 			affCode := session.Get("aff")
-			inviterId := 0
+			var affInviterId int
 			if affCode != nil {
-				inviterId, _ = model.GetUserIdByAffCode(affCode.(string))
+				affInviterId, _ = model.GetUserIdByAffCode(affCode.(string))
 			}
 
-			if err := user.Insert(inviterId); err != nil {
+			// 使用事务创建用户并处理邀请码
+			err := model.DB.Transaction(func(tx *gorm.DB) error {
+				// 验证和使用邀请码（如果启用）
+				usedInviteCode, err := validateAndUseInviteCodeForOAuth(c, tx)
+				if err != nil {
+					return err
+				}
+
+				// 设置邀请人ID（使用原有推荐码逻辑）
+				if affInviterId > 0 {
+					user.InviterId = affInviterId
+				}
+
+				// 设置使用的邀请码
+				if usedInviteCode != "" {
+					user.UsedInviteCode = usedInviteCode
+				}
+
+				// 在事务中创建用户
+				return user.InsertWithTx(tx, user.InviterId)
+			})
+
+			if err != nil {
 				c.JSON(http.StatusOK, gin.H{
 					"success": false,
 					"message": err.Error(),

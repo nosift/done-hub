@@ -8,6 +8,7 @@ import (
 	"done-hub/common/utils"
 	"done-hub/types"
 	"encoding/json"
+	"io"
 	"strings"
 )
 
@@ -19,6 +20,10 @@ type OpenAIResponsesStreamHandler struct {
 
 	searchType string
 	toolIndex  int
+
+	// SSE 事件缓冲
+	eventBuffer strings.Builder
+	eventType   string
 }
 
 func (p *OpenAIProvider) CreateResponses(request *types.OpenAIResponsesRequest) (openaiResponse *types.OpenAIResponsesResponses, errWithCode *types.OpenAIErrorWithStatusCode) {
@@ -82,9 +87,25 @@ func (p *OpenAIProvider) CreateResponsesStream(request *types.OpenAIResponsesReq
 func (h *OpenAIResponsesStreamHandler) HandlerResponsesStream(rawLine *[]byte, dataChan chan string, errChan chan error) {
 	rawStr := string(*rawLine)
 
-	// 如果rawLine 前缀不为data:，则直接返回
+	// 处理 SSE 事件格式
+	if strings.HasPrefix(rawStr, "event: ") {
+		// 开始新的事件，保存事件类型
+		h.eventType = strings.TrimPrefix(rawStr, "event: ")
+		h.eventBuffer.Reset()
+		h.eventBuffer.WriteString(rawStr)
+		h.eventBuffer.WriteString("\n")
+		return
+	}
+
+	// 如果rawLine 前缀不为data:，则添加到缓冲区
 	if !strings.HasPrefix(rawStr, h.Prefix) {
-		dataChan <- rawStr
+		if h.eventBuffer.Len() > 0 {
+			h.eventBuffer.WriteString(rawStr)
+			h.eventBuffer.WriteString("\n")
+		} else {
+			// 没有事件类型的行，直接转发
+			dataChan <- rawStr
+		}
 		return
 	}
 
@@ -132,16 +153,39 @@ func (h *OpenAIResponsesStreamHandler) HandlerResponsesStream(rawLine *[]byte, d
 				h.Usage.IncExtraBilling(types.APITollTypeFileSearch, "")
 			}
 		}
-	default:
+	case "response.completed", "response.failed", "response.incomplete":
+		// 处理流结束事件 - 先处理usage，再结束流
 		if openaiResponse.Response != nil && openaiResponse.Response.Usage != nil {
 			usage := openaiResponse.Response.Usage
 			*h.Usage = *usage.ToOpenAIUsage()
 			getResponsesExtraBilling(openaiResponse.Response, h.Usage)
-
 		}
+
+		// 添加数据行到缓冲区
+		h.eventBuffer.WriteString(rawStr)
+		h.eventBuffer.WriteString("\n")
+
+		// 发送完整的 SSE 事件块
+		dataChan <- h.eventBuffer.String()
+
+		// 发送EOF信号结束流
+		errChan <- io.EOF
+
+		// 标记流已关闭
+		*rawLine = requester.StreamClosed
+		return
 	}
 
-	dataChan <- rawStr
+	// 添加数据行到缓冲区
+	h.eventBuffer.WriteString(rawStr)
+	h.eventBuffer.WriteString("\n")
+
+	// 发送完整的 SSE 事件块
+	dataChan <- h.eventBuffer.String()
+
+	// 重置缓冲区为下一个事件做准备
+	h.eventBuffer.Reset()
+	h.eventType = ""
 }
 
 func (h *OpenAIResponsesStreamHandler) HandlerChatStream(rawLine *[]byte, dataChan chan string, errChan chan error) {

@@ -4,6 +4,7 @@ import (
 	"done-hub/common/config"
 	"done-hub/model"
 	"done-hub/providers/ali"
+	"done-hub/providers/antigravity"
 	"done-hub/providers/azure"
 	azurespeech "done-hub/providers/azureSpeech"
 	"done-hub/providers/azure_v1"
@@ -13,11 +14,14 @@ import (
 	"done-hub/providers/base"
 	"done-hub/providers/bedrock"
 	"done-hub/providers/claude"
+	"done-hub/providers/claudecode"
 	"done-hub/providers/cloudflareAI"
+	"done-hub/providers/codex"
 	"done-hub/providers/cohere"
 	"done-hub/providers/coze"
 	"done-hub/providers/deepseek"
 	"done-hub/providers/gemini"
+	"done-hub/providers/geminicli"
 	"done-hub/providers/github"
 	"done-hub/providers/groq"
 	"done-hub/providers/hunyuan"
@@ -93,6 +97,10 @@ func init() {
 		config.ChannelTypeAzureDatabricks: azuredatabricks.AzureDatabricksProviderFactory{},
 		config.ChannelTypeAzureV1:         azure_v1.AzureV1ProviderFactory{},
 		config.ChannelTypeXAI:             xAI.XAIProviderFactory{},
+		config.ChannelTypeGeminiCli:       geminicli.GeminiCliProviderFactory{},
+		config.ChannelTypeClaudeCode:      claudecode.ClaudeCodeProviderFactory{},
+		config.ChannelTypeCodex:           codex.CodexProviderFactory{},
+		config.ChannelTypeAntigravity:     antigravity.AntigravityProviderFactory{},
 	}
 }
 

@@ -7,6 +7,7 @@ import { useTheme } from '@mui/material/styles';
 import {
   Box,
   Button,
+  CircularProgress,
   Divider,
   FormControl,
   FormHelperText,
@@ -37,8 +38,9 @@ import Github from 'assets/images/icons/github.svg';
 import Wechat from 'assets/images/icons/wechat.svg';
 import Lark from 'assets/images/icons/lark.svg';
 import Oidc from 'assets/images/icons/oidc.svg';
-import LinuxDo from 'assets/images/icons/linuxdo.svg';
-import { onGitHubOAuthClicked, onLarkOAuthClicked,onOIDCAuthClicked, onLinuxDoOAuthClicked } from 'utils/common';
+import LinuxDoIcon from 'assets/images/icons/LinuxDoIcon';
+import { onGitHubOAuthClicked, onLarkOAuthClicked, onLinuxDoOAuthClicked, onOIDCAuthClicked, onWebAuthnClicked } from 'utils/common';
+import Webauthn from 'assets/images/icons/webauthn.svg';
 import { useTranslation } from 'react-i18next';
 
 // ============================|| FIREBASE - LOGIN ||============================ //
@@ -48,6 +50,7 @@ const LoginForm = ({ ...others }) => {
   const theme = useTheme();
   const { login, wechatLogin } = useLogin();
   const [openWechat, setOpenWechat] = useState(false);
+
   const matchDownSM = useMediaQuery(theme.breakpoints.down('md'));
   const customization = useSelector((state) => state.customization);
   const siteInfo = useSelector((state) => state.siteInfo);
@@ -64,6 +67,33 @@ const LoginForm = ({ ...others }) => {
 
   const handleWechatClose = () => {
     setOpenWechat(false);
+  };
+
+  // 处理第三方登录点击
+  const handleOAuthClick = (provider) => {
+    // 直接执行第三方登录，不预先要求邀请码
+    // 后端会在需要注册新用户时处理邀请码验证
+    executeOAuthLogin(provider);
+  };
+
+  // 执行第三方登录
+  const executeOAuthLogin = (provider) => {
+    switch (provider) {
+      case 'github':
+        onGitHubOAuthClicked(siteInfo.github_client_id);
+        break;
+      case 'lark':
+        onLarkOAuthClicked(siteInfo.lark_client_id);
+        break;
+      case 'oidc':
+        onOIDCAuthClicked();
+        break;
+      case 'linuxdo':
+        onLinuxDoOAuthClicked(siteInfo.linuxDo_client_id, true);
+        break;
+      default:
+        break;
+    }
   };
 
   const [showPassword, setShowPassword] = useState(false);
@@ -85,14 +115,14 @@ const LoginForm = ({ ...others }) => {
                 <Button
                   disableElevation
                   fullWidth
-                  onClick={() => onGitHubOAuthClicked(siteInfo.github_client_id)}
+                  onClick={() => handleOAuthClick('github')}
                   size="large"
                   variant="outlined"
                   sx={{
                     ...theme.typography.LoginButton
                   }}
                 >
-                  <Box sx={{ mr: { xs: 1, sm: 2, width: 20 }, display: 'flex', alignItems: 'center' }}>
+                  <Box sx={{ mr: { xs: 1, sm: 2 }, display: 'flex', alignItems: 'center', minWidth: 25 }}>
                     <img src={Github} alt="github" width={25} height={25} style={{ marginRight: matchDownSM ? 8 : 16 }} />
                   </Box>
                   {t('login.useGithubLogin')}
@@ -113,7 +143,7 @@ const LoginForm = ({ ...others }) => {
                     ...theme.typography.LoginButton
                   }}
                 >
-                  <Box sx={{ mr: { xs: 1, sm: 2, width: 20 }, display: 'flex', alignItems: 'center' }}>
+                  <Box sx={{ mr: { xs: 1, sm: 2 }, display: 'flex', alignItems: 'center', minWidth: 25 }}>
                     <img src={Wechat} alt="Wechat" width={25} height={25} style={{ marginRight: matchDownSM ? 8 : 16 }} />
                   </Box>
                   {t('login.useWechatLogin')}
@@ -128,14 +158,14 @@ const LoginForm = ({ ...others }) => {
                 <Button
                   disableElevation
                   fullWidth
-                  onClick={() => onLarkOAuthClicked(siteInfo.lark_client_id)}
+                  onClick={() => handleOAuthClick('lark')}
                   size="large"
                   variant="outlined"
                   sx={{
                     ...theme.typography.LoginButton
                   }}
                 >
-                  <Box sx={{ mr: { xs: 1, sm: 2, width: 20 }, display: 'flex', alignItems: 'center' }}>
+                  <Box sx={{ mr: { xs: 1, sm: 2 }, display: 'flex', alignItems: 'center', minWidth: 25 }}>
                     <img src={Lark} alt="Lark" width={25} height={25} style={{ marginRight: matchDownSM ? 8 : 16 }} />
                   </Box>
                   {t('login.useLarkLogin')}
@@ -150,14 +180,14 @@ const LoginForm = ({ ...others }) => {
                 <Button
                   disableElevation
                   fullWidth
-                  onClick={() => onOIDCAuthClicked()}
+                  onClick={() => handleOAuthClick('oidc')}
                   size="large"
                   variant="outlined"
                   sx={{
                     ...theme.typography.LoginButton
                   }}
                 >
-                  <Box sx={{ mr: { xs: 1, sm: 2, width: 20 }, display: 'flex', alignItems: 'center' }}>
+                  <Box sx={{ mr: { xs: 1, sm: 2 }, display: 'flex', alignItems: 'center', minWidth: 25 }}>
                     <img src={Oidc} alt="oidc" width={25} height={25} style={{ marginRight: matchDownSM ? 8 : 16 }} />
                   </Box>
                   {t('login.useOIDCLogin')}
@@ -171,15 +201,15 @@ const LoginForm = ({ ...others }) => {
                 <Button
                   disableElevation
                   fullWidth
-                  onClick={() => onLinuxDoOAuthClicked(siteInfo.linuxDo_client_id, true)}
+                  onClick={() => handleOAuthClick('linuxdo')}
                   size="large"
                   variant="outlined"
                   sx={{
                     ...theme.typography.LoginButton
                   }}
                 >
-                  <Box sx={{ mr: { xs: 1, sm: 2, width: 20 }, display: 'flex', alignItems: 'center' }}>
-                    <img src={LinuxDo} alt="linuxdo" width={25} height={25} style={{ marginRight: matchDownSM ? 8 : 16 }} />
+                  <Box sx={{ mr: { xs: 1, sm: 2 }, display: 'flex', alignItems: 'center', minWidth: 25 }}>
+                    <LinuxDoIcon size={25} variant="login" style={{ marginRight: matchDownSM ? 8 : 16 }} />
                   </Box>
                   {t('login.useLinuxDoLogin')}
                 </Button>
@@ -242,7 +272,7 @@ const LoginForm = ({ ...others }) => {
           setSubmitting(false);
         }}
       >
-        {({ errors, handleBlur, handleChange, handleSubmit, isSubmitting, touched, values }) => (
+        {({ errors, handleBlur, handleChange, handleSubmit, isSubmitting, touched, values, setErrors, setStatus }) => (
           <form noValidate onSubmit={handleSubmit} {...others}>
             <FormControl fullWidth error={Boolean(touched.username && errors.username)} sx={{ ...theme.typography.customInput }}>
               <InputLabel htmlFor="outlined-adornment-username-login">{t('login.usernameOrEmail')}</InputLabel>
@@ -312,8 +342,44 @@ const LoginForm = ({ ...others }) => {
 
             <Box sx={{ mt: 2 }}>
               <AnimateButton>
-                <Button disableElevation disabled={isSubmitting} fullWidth size="large" type="submit" variant="contained" color="primary">
-                  {t('menu.login')}
+                <Button
+                  disableElevation
+                  disabled={isSubmitting}
+                  fullWidth
+                  size="large"
+                  type="submit"
+                  variant="contained"
+                  color="primary"
+                  startIcon={isSubmitting ? <CircularProgress size={20} color="inherit" /> : null}
+                >
+                  {isSubmitting ? t('login.loggingIn') : t('menu.login')}
+                </Button>
+              </AnimateButton>
+            </Box>
+
+            <Box sx={{ mt: 2 }}>
+              <AnimateButton>
+                <Button
+                  disableElevation
+                  fullWidth
+                  onClick={() =>
+                    onWebAuthnClicked(
+                      values.username,
+                      (msg) => setErrors({ submit: msg }),
+                      (msg) => setStatus({ success: true, message: msg }),
+                      () => {}
+                    )
+                  }
+                  size="large"
+                  variant="outlined"
+                  sx={{
+                    ...theme.typography.LoginButton
+                  }}
+                >
+                  <Box sx={{ mr: { xs: 1, sm: 2, width: 20 }, display: 'flex', alignItems: 'center' }}>
+                    <img src={Webauthn} alt="WebAuthn" width={25} height={25} style={{ marginRight: matchDownSM ? 8 : 16 }} />
+                  </Box>
+                  WebAuthn
                 </Button>
               </AnimateButton>
             </Box>

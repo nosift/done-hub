@@ -65,7 +65,7 @@ func chooseDB() (*gorm.DB, error) {
 	if viper.IsSet("sql_dsn") {
 		dsn := viper.GetString("sql_dsn")
 		localTimezone := utils.GetLocalTimezone()
-		if strings.HasPrefix(dsn, "postgres://") {
+		if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
 			// Use PostgreSQL
 			logger.SysLog("using PostgreSQL as database")
 			common.UsingPostgreSQL = true
@@ -180,6 +180,16 @@ func InitDB() (err error) {
 		}
 
 		err = db.AutoMigrate(&ModelOwnedBy{})
+		if err != nil {
+			return err
+		}
+
+		err = db.AutoMigrate(&InviteCode{})
+		if err != nil {
+			return err
+		}
+
+		err = DB.AutoMigrate(&WebAuthnCredential{})
 		if err != nil {
 			return err
 		}

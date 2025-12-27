@@ -24,6 +24,7 @@ func SetApiRouter(router *gin.Engine) {
 	systemInfo.Use(middleware.RootAuth())
 	{
 		systemInfo.POST("/log", controller.SystemLog)
+		systemInfo.POST("/log/query", controller.SystemLogQuery)
 	}
 
 	apiRouter.POST("/telegram/:token", middleware.Telegram(), controller.TelegramBotWebHook)
@@ -44,6 +45,7 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/oauth/github", middleware.CriticalRateLimit(), middleware.SessionSecurity(), controller.GitHubOAuth)
 		apiRouter.GET("/oauth/lark", middleware.CriticalRateLimit(), middleware.SessionSecurity(), controller.LarkOAuth)
 		apiRouter.GET("/oauth/state", middleware.CriticalRateLimit(), middleware.SessionSecurity(), controller.GenerateOAuthCode)
+		apiRouter.POST("/oauth/invite_code", middleware.CriticalRateLimit(), middleware.SessionSecurity(), controller.SetOAuthInviteCode)
 		apiRouter.GET("/oauth/wechat", middleware.CriticalRateLimit(), middleware.SessionSecurity(), controller.WeChatAuth)
 		apiRouter.GET("/oauth/wechat/bind", middleware.CriticalRateLimit(), middleware.SessionSecurity(), middleware.UserAuth(), controller.WeChatBind)
 		apiRouter.GET("/oauth/email/bind", middleware.CriticalRateLimit(), middleware.SessionSecurity(), middleware.UserAuth(), controller.EmailBind)
@@ -54,7 +56,23 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/oauth/linuxdo", middleware.CriticalRateLimit(), middleware.SessionSecurity(), controller.LinuxDoOAuth)
 		apiRouter.GET("/oauth/linuxdo/bind", middleware.CriticalRateLimit(), middleware.SessionSecurity(), middleware.UserAuth(), controller.LinuxDoBind)
 
+		webauthnGroup := apiRouter.Group("/webauthn")
+		{
+			// 注册相关
+			webauthnGroup.POST("/registration/begin", middleware.UserAuth(), controller.WebauthnBeginRegistration)
+			webauthnGroup.POST("/registration/finish", middleware.UserAuth(), controller.WebauthnFinishRegistration)
+
+			// 登录相关
+			webauthnGroup.POST("/login/begin", middleware.CriticalRateLimit(), controller.WebauthnBeginLogin)
+			webauthnGroup.POST("/login/finish", middleware.CriticalRateLimit(), controller.WebauthnFinishLogin)
+
+			// 凭据管理
+			webauthnGroup.GET("/credentials", middleware.UserAuth(), controller.GetUserWebAuthnCredentials)
+			webauthnGroup.DELETE("/credentials/:id", middleware.UserAuth(), controller.DeleteWebAuthnCredential)
+		}
+
 		apiRouter.Any("/payment/notify/:uuid", controller.PaymentCallback)
+		apiRouter.GET("/epay/notify", controller.EpayCallback)
 
 		userRoute := apiRouter.Group("/user")
 		{
@@ -112,6 +130,18 @@ func SetApiRouter(router *gin.Engine) {
 			optionRoute.POST("/system_info/log", controller.SystemLog)
 		}
 
+		inviteCodeRoute := apiRouter.Group("/invite-code")
+		inviteCodeRoute.Use(middleware.AdminAuth())
+		{
+			inviteCodeRoute.GET("/", controller.GetInviteCodesList)
+			inviteCodeRoute.GET("/generate", controller.GenerateRandomInviteCode)
+			inviteCodeRoute.GET("/:id", controller.GetInviteCode)
+			inviteCodeRoute.POST("/", controller.CreateInviteCode)
+			inviteCodeRoute.PUT("/:id", controller.UpdateInviteCode)
+			inviteCodeRoute.DELETE("/:id", controller.DeleteInviteCode)
+			inviteCodeRoute.POST("/batch-delete", controller.BatchDeleteInviteCodes)
+		}
+
 		modelOwnedByRoute := apiRouter.Group("/model_ownedby")
 		modelOwnedByRoute.GET("/", controller.GetAllModelOwnedBy)
 		modelOwnedByRoute.Use(middleware.AdminAuth())
@@ -148,12 +178,46 @@ func SetApiRouter(router *gin.Engine) {
 			channelRoute.PUT("/", controller.UpdateChannel)
 			channelRoute.PUT("/batch/azure_api", controller.BatchUpdateChannelsAzureApi)
 			channelRoute.PUT("/batch/del_model", controller.BatchDelModelChannels)
+			channelRoute.PUT("/batch/add_model", controller.BatchAddModelToChannels)
 			channelRoute.PUT("/batch/add_user_group", controller.BatchAddUserGroupToChannels)
+		}
+
+		// GeminiCli OAuth routes (no auth required for callback)
+		geminiCliRoute := apiRouter.Group("/geminicli")
+		{
+			geminiCliRoute.POST("/oauth/start", middleware.AdminAuth(), controller.StartGeminiCliOAuth)
+			geminiCliRoute.GET("/oauth/callback", controller.GeminiCliOAuthCallback)
+			geminiCliRoute.GET("/oauth/status/:state", middleware.AdminAuth(), controller.GetGeminiCliOAuthStatus)
 			channelRoute.DELETE("/disabled", controller.DeleteDisabledChannel)
 			channelRoute.DELETE("/:id/tag", controller.DeleteChannelTag)
 			channelRoute.DELETE("/:id", controller.DeleteChannel)
 			channelRoute.DELETE("/batch", controller.BatchDeleteChannel)
 		}
+
+		// ClaudeCode OAuth routes
+		claudeCodeRoute := apiRouter.Group("/claudecode")
+		claudeCodeRoute.Use(middleware.AdminAuth())
+		{
+			claudeCodeRoute.POST("/oauth/start", controller.StartClaudeCodeOAuth)
+			claudeCodeRoute.POST("/oauth/exchange-code", controller.ClaudeCodeOAuthCallback)
+		}
+
+		// Codex OAuth routes
+		codexRoute := apiRouter.Group("/codex")
+		codexRoute.Use(middleware.AdminAuth())
+		{
+			codexRoute.POST("/oauth/start", controller.StartCodexOAuth)
+			codexRoute.POST("/oauth/exchange-code", controller.CodexOAuthCallback)
+		}
+
+		// Antigravity OAuth routes
+		antigravityRoute := apiRouter.Group("/antigravity")
+		{
+			antigravityRoute.POST("/oauth/start", middleware.AdminAuth(), controller.StartAntigravityOAuth)
+			antigravityRoute.GET("/oauth/callback", controller.AntigravityOAuthCallback)
+			antigravityRoute.GET("/oauth/status/:state", middleware.AdminAuth(), controller.GetAntigravityOAuthStatus)
+		}
+
 		channelTagRoute := apiRouter.Group("/channel_tag")
 		channelTagRoute.Use(middleware.AdminAuth())
 		{
@@ -188,13 +252,17 @@ func SetApiRouter(router *gin.Engine) {
 			redemptionRoute.DELETE("/:id", controller.DeleteRedemption)
 		}
 		logRoute := apiRouter.Group("/log")
-		logRoute.GET("/", middleware.AdminAuth(), controller.GetLogsList)
-		logRoute.DELETE("/", middleware.AdminAuth(), controller.DeleteHistoryLogs)
-		logRoute.GET("/stat", middleware.AdminAuth(), controller.GetLogsStat)
-		logRoute.GET("/self/stat", middleware.UserAuth(), controller.GetLogsSelfStat)
-		// logRoute.GET("/search", middleware.AdminAuth(), controller.SearchAllLogs)
-		logRoute.GET("/self", middleware.UserAuth(), controller.GetUserLogsList)
-		// logRoute.GET("/self/search", middleware.UserAuth(), controller.SearchUserLogs)
+		{
+			logRoute.GET("/", middleware.AdminAuth(), controller.GetLogsList)
+			logRoute.GET("/export", middleware.AdminAuth(), controller.ExportLogsList)
+			logRoute.DELETE("/", middleware.AdminAuth(), controller.DeleteHistoryLogs)
+			logRoute.GET("/stat", middleware.AdminAuth(), controller.GetLogsStat)
+			logRoute.GET("/self/stat", middleware.UserAuth(), controller.GetLogsSelfStat)
+			// logRoute.GET("/search", middleware.AdminAuth(), controller.SearchAllLogs)
+			logRoute.GET("/self", middleware.UserAuth(), controller.GetUserLogsList)
+			logRoute.GET("/self/export", middleware.UserAuth(), controller.ExportUserLogsList)
+			// logRoute.GET("/self/search", middleware.UserAuth(), controller.SearchUserLogs)
+		}
 		groupRoute := apiRouter.Group("/group")
 		groupRoute.Use(middleware.AdminAuth())
 		{

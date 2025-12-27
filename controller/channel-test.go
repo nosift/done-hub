@@ -38,6 +38,15 @@ func testChannel(channel *model.Channel, testModel string) (openaiErr *types.Ope
 		}
 	}
 
+	// 解析模型名称中的 # 后缀（用于 o1/o3-mini/gpt-5 的 reasoning_effort 等参数）
+	// 例如：gpt-5#low -> gpt-5 (otherArg: low)
+	var otherArg string
+	parts := strings.Split(testModel, "#")
+	if len(parts) > 1 {
+		otherArg = parts[1]
+		testModel = parts[0]
+	}
+
 	channelType := getModelType(testModel)
 	channel.SetProxy()
 
@@ -69,6 +78,11 @@ func testChannel(channel *model.Channel, testModel string) (openaiErr *types.Ope
 	provider := providers.GetProvider(channel, c)
 	if provider == nil {
 		return nil, errors.New("channel not implemented")
+	}
+
+	// 设置 otherArg（用于 reasoning_effort 等参数）
+	if otherArg != "" {
+		provider.SetOtherArg(otherArg)
 	}
 
 	newModelName, err := provider.ModelMappingHandler(testModel)
