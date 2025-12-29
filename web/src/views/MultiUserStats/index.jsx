@@ -134,12 +134,12 @@ export default function MultiUserStats() {
                 gradient: {
                     shade: 'light',
                     type: 'vertical',
-                    shadeIntensity: 0.25,
+                    shadeIntensity: 0.3,
                     gradientToColors: undefined,
-                    inverseColors: true,
-                    opacityFrom: 0.85,
-                    opacityTo: 0.85,
-                    stops: [50, 0, 100]
+                    inverseColors: false,
+                    opacityFrom: 1,
+                    opacityTo: 0.7,
+                    stops: [0, 100]
                 }
             },
             colors: [theme.palette.primary.main],
