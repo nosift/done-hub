@@ -72,10 +72,10 @@ func SetApiRouter(router *gin.Engine) {
 		}
 
 		apiRouter.Any("/payment/notify/:uuid", controller.PaymentCallback)
-		apiRouter.GET("/epay/notify", controller.EpayCallback)
 
 		userRoute := apiRouter.Group("/user")
 		{
+			userRoute.GET("/epay/notify", controller.EpayCallback)
 			userRoute.POST("/register", middleware.CriticalRateLimit(), middleware.TurnstileCheck(), controller.Register)
 			userRoute.POST("/login", middleware.CriticalRateLimit(), middleware.SessionSecurity(), controller.Login)
 			userRoute.GET("/logout", middleware.SessionSecurity(), controller.Logout)
