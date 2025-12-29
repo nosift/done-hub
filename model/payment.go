@@ -18,7 +18,7 @@ type Payment struct {
 	Type         string         `json:"type" form:"type" gorm:"type:varchar(16)"`
 	UUID         string         `json:"uuid" form:"uuid" gorm:"type:char(32);uniqueIndex"`
 	Name         string         `json:"name" form:"name" gorm:"type:varchar(255); not null"`
-	Icon         string         `json:"icon" form:"icon" gorm:"type:varchar(300)"`
+	Icon         string         `json:"icon" form:"icon" gorm:"type:text"`
 	NotifyDomain string         `json:"notify_domain" form:"notify_domain" gorm:"type:varchar(300)"`
 	FixedFee     float64        `json:"fixed_fee" form:"fixed_fee" gorm:"type:decimal(10,2); default:0.00"`
 	PercentFee   float64        `json:"percent_fee" form:"percent_fee" gorm:"type:decimal(10,2); default:0.00"`

@@ -18,6 +18,7 @@ import { useTheme } from '@mui/material/styles';
 import SubCard from 'ui-component/cards/SubCard';
 import UserCard from 'ui-component/cards/UserCard';
 import AnimateButton from 'ui-component/extended/AnimateButton';
+import PaymentIcon from 'ui-component/PaymentIcon';
 import { useSelector } from 'react-redux';
 import PayDialog from './PayDialog';
 
@@ -236,8 +237,8 @@ const TopupCard = () => {
                     border: selectedPayment === item ? `1px solid ${theme.palette.primary.main}` : '1px solid transparent'
                   }}
                 >
-                  <Box sx={{ mr: { xs: 1, sm: 2, width: 20 }, display: 'flex', alignItems: 'center' }}>
-                    <img src={item.icon} alt="github" width={25} height={25} style={{ marginRight: matchDownSM ? 8 : 16 }} />
+                  <Box sx={{ mr: { xs: 1, sm: 2 }, display: 'flex', alignItems: 'center' }}>
+                    <PaymentIcon icon={item.icon} size={25} sx={{ marginRight: matchDownSM ? 1 : 2 }} />
                   </Box>
                   {item.name}
                 </Button>

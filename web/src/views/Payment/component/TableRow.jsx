@@ -20,6 +20,7 @@ import { Icon } from '@iconify/react';
 import { timestamp2string, showError } from 'utils/common';
 import { PaymentType } from '../type/Config';
 import TableSwitch from 'ui-component/Switch';
+import PaymentIcon from 'ui-component/PaymentIcon';
 import { useTranslation } from 'react-i18next';
 
 export default function PaymentTableRow({ item, managePayment, handleOpenModal, setModalPaymentId }) {
@@ -72,7 +73,7 @@ export default function PaymentTableRow({ item, managePayment, handleOpenModal, 
         <TableCell style={{ minWidth: '100px' }}>{item.name}</TableCell>
         <TableCell style={{ minWidth: '80px' }}>{PaymentType?.[item.type] || t('common.unknown')}</TableCell>
         <TableCell>
-          <img src={item.icon} alt="icon" style={{ width: '24px', height: '24px' }} />
+          <PaymentIcon icon={item.icon} size={24} />
         </TableCell>
         <TableCell>{item.fixed_fee}</TableCell>
         <TableCell>{item.percent_fee}</TableCell>
