@@ -182,8 +182,14 @@ const TopupCard = () => {
     const discount = RechargeDiscount[amount] || 1; // 如果没有折扣，则默认为1（即没有折扣）
     let newAmount = amount * discount; //折后价格
     let total = Number(newAmount) + Number(calculateFee());
+
+    // 获取网关倍率，默认为1
+    const currencyRate = selectedPayment?.currency_rate > 0 ? selectedPayment.currency_rate : 1;
+
     if (selectedPayment && selectedPayment.currency === 'CNY') {
-      total = parseFloat((total * siteInfo.PaymentUSDRate).toFixed(2));
+      total = parseFloat((total * siteInfo.PaymentUSDRate * currencyRate).toFixed(2));
+    } else {
+      total = parseFloat((total * currencyRate).toFixed(2));
     }
     return total;
   };
@@ -303,10 +309,18 @@ const TopupCard = () => {
               </Grid>
               <Grid item xs={6} md={3}>
                 {calculateTotal()}{' '}
-                {selectedPayment &&
-                  (selectedPayment.currency === 'CNY'
-                    ? `CNY (${t('topupCard.exchangeRate')}: ${siteInfo.PaymentUSDRate})`
-                    : selectedPayment.currency)}
+                {selectedPayment && (() => {
+                  const currencyRate = selectedPayment.currency_rate > 0 ? selectedPayment.currency_rate : 1;
+                  if (selectedPayment.currency === 'CNY') {
+                    return currencyRate !== 1
+                      ? `CNY (${t('topupCard.exchangeRate')}: ${siteInfo.PaymentUSDRate}, ${t('topupCard.rate')}: ${currencyRate})`
+                      : `CNY (${t('topupCard.exchangeRate')}: ${siteInfo.PaymentUSDRate})`;
+                  } else {
+                    return currencyRate !== 1
+                      ? `${selectedPayment.currency} (${t('topupCard.rate')}: ${currencyRate})`
+                      : selectedPayment.currency;
+                  }
+                })()}
               </Grid>
             </Grid>
             <Divider />

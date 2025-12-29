@@ -218,13 +218,21 @@ func calculateOrderAmount(payment *model.Payment, amount int) (discountMoney, fe
 		fee = payment.FixedFee
 	}
 
-	//实际费用=（折后价+折后手续费）*汇率
+	//实际费用=（折后价+折后手续费）*汇率*网关倍率
 	total := utils.Decimal(newMoney+fee, 2)
+
+	// 获取网关倍率，默认为1
+	currencyRate := payment.CurrencyRate
+	if currencyRate <= 0 {
+		currencyRate = 1
+	}
+
 	if payment.Currency == model.CurrencyTypeUSD {
-		payMoney = total
+		oldTotal = utils.Decimal(oldTotal*currencyRate, 2)
+		payMoney = utils.Decimal(total*currencyRate, 2)
 	} else {
-		oldTotal = utils.Decimal(oldTotal*config.PaymentUSDRate, 2)
-		payMoney = utils.Decimal(total*config.PaymentUSDRate, 2)
+		oldTotal = utils.Decimal(oldTotal*config.PaymentUSDRate*currencyRate, 2)
+		payMoney = utils.Decimal(total*config.PaymentUSDRate*currencyRate, 2)
 	}
 	discountMoney = oldTotal - payMoney //折扣金额 = 原价值-实际支付价值
 	return

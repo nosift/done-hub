@@ -23,6 +23,7 @@ type Payment struct {
 	FixedFee     float64        `json:"fixed_fee" form:"fixed_fee" gorm:"type:decimal(10,2); default:0.00"`
 	PercentFee   float64        `json:"percent_fee" form:"percent_fee" gorm:"type:decimal(10,2); default:0.00"`
 	Currency     CurrencyType   `json:"currency" form:"currency" gorm:"type:varchar(5)"`
+	CurrencyRate float64        `json:"currency_rate" form:"currency_rate" gorm:"type:decimal(10,2); default:1.00"`
 	Config       string         `json:"config" form:"config" gorm:"type:text"`
 	Sort         int            `json:"sort" form:"sort" gorm:"default:1"`
 	Enable       *bool          `json:"enable" form:"enable" gorm:"default:true"`
@@ -84,7 +85,7 @@ func GetPanymentList(params *SearchPaymentParams) (*DataResult[Payment], error) 
 
 func GetUserPaymentList() ([]*Payment, error) {
 	var payments []*Payment
-	err := DB.Model(payments).Select("uuid, name, icon, fixed_fee, percent_fee, currency, sort").Where("enable = ?", true).Find(&payments).Error
+	err := DB.Model(payments).Select("uuid, name, icon, fixed_fee, percent_fee, currency, currency_rate, sort").Where("enable = ?", true).Find(&payments).Error
 	return payments, err
 }
 

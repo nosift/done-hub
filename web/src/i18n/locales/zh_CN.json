@@ -523,7 +523,8 @@
     "redemptionCodeTopup": "兑换码充值",
     "noRedemptionCodeText": "还没有兑换码？ 点击获取兑换码：",
     "getRedemptionCode": "获取兑换码",
-    "exchangeRate": "汇率"
+    "exchangeRate": "汇率",
+    "rate": "倍率"
   },
   "inviteCard": {
     "inviteReward": "邀请奖励",
@@ -1383,7 +1384,10 @@
     "FixedTip": "每次支付收取固定的手续费，单位 美元",
     "percentTip": "每次支付按百分比收取手续费，如果为5%，请填写 0.05",
     "currencyType": "网关货币类型",
-    "currencyTip": "该网关是收取什么货币的，请查询对应网关文档"
+    "currencyTip": "该网关是收取什么货币的，请查询对应网关文档",
+    "currencyRate": "网关倍率",
+    "currencyRateTip": "支付金额会额外乘以此倍率，默认为1（不影响）。例如设置为5，则充值1美元需支付 1×全局汇率×5",
+    "requiredCurrencyRate": "网关倍率 必须大于 0"
   },
   "payment_row": {
     "sortTip": "排序不能小于 0",

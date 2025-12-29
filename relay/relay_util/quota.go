@@ -147,8 +147,8 @@ func (q *Quota) completedQuotaConsumption(usage *types.Usage, tokenName string, 
 
 	quota := q.GetTotalQuotaByUsage(usage)
 
-	if quota > 0 {
-		quotaDelta := quota - q.preConsumedQuota
+	quotaDelta := quota - q.preConsumedQuota
+	if quotaDelta != 0 {
 		err := model.PostConsumeTokenQuota(q.tokenId, quotaDelta)
 		if err != nil {
 			return errors.New("error consuming token remain quota: " + err.Error())
@@ -157,6 +157,8 @@ func (q *Quota) completedQuotaConsumption(usage *types.Usage, tokenName string, 
 		if err != nil {
 			return errors.New("error consuming token remain quota: " + err.Error())
 		}
+	}
+	if quota > 0 {
 		model.UpdateChannelUsedQuota(q.channelId, quota)
 	}
 
