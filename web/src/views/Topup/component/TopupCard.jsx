@@ -309,18 +309,30 @@ const TopupCard = () => {
                 </Typography>
               </Grid>
               <Grid item xs={6} md={3}>
-                {calculateTotal()}{' '}
                 {selectedPayment && (() => {
                   const currencyRate = selectedPayment.currency_rate > 0 ? selectedPayment.currency_rate : 1;
-                  if (selectedPayment.currency === 'CNY') {
-                    return currencyRate !== 1
-                      ? `CNY (${t('topupCard.exchangeRate')}: ${siteInfo.PaymentUSDRate}, ${t('topupCard.rate')}: ${currencyRate})`
-                      : `CNY (${t('topupCard.exchangeRate')}: ${siteInfo.PaymentUSDRate})`;
-                  } else {
-                    return currencyRate !== 1
-                      ? `${selectedPayment.currency} (${t('topupCard.rate')}: ${currencyRate})`
-                      : selectedPayment.currency;
+                  const currency = selectedPayment.currency || 'USD';
+                  const showRate = selectedPayment.currency === 'CNY' || currencyRate !== 1;
+
+                  let rateInfo = '';
+                  if (selectedPayment.currency === 'CNY' && currencyRate !== 1) {
+                    rateInfo = `(${t('topupCard.exchangeRate')}: ${siteInfo.PaymentUSDRate}, ${t('topupCard.rate')}: ${currencyRate})`;
+                  } else if (selectedPayment.currency === 'CNY') {
+                    rateInfo = `(${t('topupCard.exchangeRate')}: ${siteInfo.PaymentUSDRate})`;
+                  } else if (currencyRate !== 1) {
+                    rateInfo = `(${t('topupCard.rate')}: ${currencyRate})`;
                   }
+
+                  return (
+                    <Box>
+                      <Typography component="span">{calculateTotal()} {currency}</Typography>
+                      {showRate && rateInfo && (
+                        <Typography variant="caption" display="block" color="text.secondary">
+                          {rateInfo}
+                        </Typography>
+                      )}
+                    </Box>
+                  );
                 })()}
               </Grid>
             </Grid>
