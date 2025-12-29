@@ -221,7 +221,7 @@ export default function ModelPrice() {
           }
           : { input: t('modelpricePage.noneGroup'), output: t('modelpricePage.noneGroup') };
 
-        // 计算所有用户组的价格F - 只包含模型实际存在的分组
+        // 计算所有用户组的价格 - 只包含模型实际存在的分组
         const allGroupPrices = Object.entries(userGroupMap)
           .filter(([key]) => model.groups.includes(key))
           .map(([key, grp]) => {

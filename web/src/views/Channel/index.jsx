@@ -20,7 +20,7 @@ import ChannelTableRow from './component/TableRow'
 import KeywordTableHead from 'ui-component/TableHead'
 import { API } from 'utils/api'
 import EditeModal from './component/EditModal'
-import { getPageSize, PAGE_SIZE_OPTIONS, savePageSize } from 'constants'
+import { getPageSize, PAGE_SIZE_OPTIONS, savePageSize, getTableSort, saveTableSort } from 'constants'
 import TableToolBar from './component/TableToolBar'
 import BatchModal from './component/BatchModal'
 import { useTranslation } from 'react-i18next'
@@ -74,8 +74,8 @@ export async function fetchChannelData(page, rowsPerPage, keyword, order, orderB
 export default function ChannelList() {
   const { t } = useTranslation()
   const [page, setPage] = useState(0)
-  const [order, setOrder] = useState('desc')
-  const [orderBy, setOrderBy] = useState('id')
+  const [order, setOrder] = useState(() => getTableSort('channel').order)
+  const [orderBy, setOrderBy] = useState(() => getTableSort('channel').orderBy)
   const [rowsPerPage, setRowsPerPage] = useState(() => getPageSize('channel'))
   const [listCount, setListCount] = useState(0)
   const [searching, setSearching] = useState(false)
@@ -109,8 +109,10 @@ export default function ChannelList() {
   const handleSort = (event, id) => {
     const isAsc = orderBy === id && order === 'asc'
     if (id !== '') {
-      setOrder(isAsc ? 'desc' : 'asc')
+      const newOrder = isAsc ? 'desc' : 'asc'
+      setOrder(newOrder)
       setOrderBy(id)
+      saveTableSort('channel', newOrder, id)
     }
   }
 
@@ -264,6 +266,7 @@ export default function ChannelList() {
     if (reset) {
       setOrderBy('id')
       setOrder('desc')
+      saveTableSort('channel', 'desc', 'id')
       setToolBarValue(originalKeyword)
       setSearchKeyword(originalKeyword)
     }

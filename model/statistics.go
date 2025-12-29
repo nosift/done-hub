@@ -48,50 +48,6 @@ func GetUserModelStatisticsByPeriod(userId int, startTime, endTime string) (LogS
 	return
 }
 
-type MultiUserStatistic struct {
-	Username         string `gorm:"column:username" json:"username"`
-	ModelName        string `gorm:"column:model_name" json:"model_name"`
-	RequestCount     int64  `gorm:"column:request_count" json:"request_count"`
-	Quota            int64  `gorm:"column:quota" json:"quota"`
-	PromptTokens     int64  `gorm:"column:prompt_tokens" json:"prompt_tokens"`
-	CompletionTokens int64  `gorm:"column:completion_tokens" json:"completion_tokens"`
-	RequestTime      int64  `gorm:"column:request_time" json:"request_time"`
-}
-
-// GetMultiUserStatisticsByPeriod 获取多个用户在指定时间段内的统计数据
-func GetMultiUserStatisticsByPeriod(usernames []string, startTime, endTime string) ([]*MultiUserStatistic, error) {
-	if len(usernames) == 0 {
-		return nil, fmt.Errorf("usernames cannot be empty")
-	}
-
-	var statistics []*MultiUserStatistic
-
-	// Build SQL query
-	query := `
-		SELECT 
-			users.username,
-			statistics.model_name,
-			SUM(statistics.request_count) as request_count,
-			SUM(statistics.quota) as quota,
-			SUM(statistics.prompt_tokens) as prompt_tokens,
-			SUM(statistics.completion_tokens) as completion_tokens,
-			SUM(statistics.request_time) as request_time
-		FROM statistics
-		INNER JOIN users ON statistics.user_id = users.id
-		WHERE users.username IN (?)
-		AND statistics.date BETWEEN ? AND ?
-		GROUP BY users.username, statistics.model_name
-		ORDER BY users.username, statistics.model_name
-	`
-
-	err := DB.Raw(query, usernames, startTime, endTime).Scan(&statistics).Error
-	if err != nil {
-		return nil, err
-	}
-
-	return statistics, nil
-}
-
 // UserGroupedStatistic 按用户分组的统计数据(不按模型分组)
 type UserGroupedStatistic struct {
 	Username         string `gorm:"column:username" json:"username"`

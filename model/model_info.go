@@ -1,7 +1,6 @@
 package model
 
 import (
-	"done-hub/common/logger"
 	"done-hub/common/utils"
 )
 
@@ -115,12 +114,4 @@ func DeleteModelInfo(id int) error {
 		return err
 	}
 	return nil
-}
-
-func InitModelInfo() {
-	// Auto migrate logic is handled centrally usually, but if needed here:
-	err := DB.AutoMigrate(&ModelInfo{})
-	if err != nil {
-		logger.SysError("Failed to auto migrate ModelInfo: " + err.Error())
-	}
 }
