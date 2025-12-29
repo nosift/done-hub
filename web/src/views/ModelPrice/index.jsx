@@ -221,22 +221,23 @@ export default function ModelPrice() {
           }
           : { input: t('modelpricePage.noneGroup'), output: t('modelpricePage.noneGroup') };
 
-        // 计算所有用户组的价格F
-        const allGroupPrices = Object.entries(userGroupMap).map(([key, grp]) => {
-          const hasGroupAccess = model.groups.includes(key);
-          return {
-            groupName: grp.name,
-            groupKey: key,
-            input: hasGroupAccess ? grp.ratio * model.price.input : 0,
-            output: hasGroupAccess ? grp.ratio * model.price.output : 0,
-            type: model.price.type,
-            ratio: grp.ratio,
-            extraRatios:
-              model.price.extra_ratios && hasGroupAccess
-                ? Object.fromEntries(Object.entries(model.price.extra_ratios).map(([k, v]) => [k, (grp.ratio * v).toFixed(6)]))
-                : null
-          };
-        });
+        // 计算所有用户组的价格F - 只包含模型实际存在的分组
+        const allGroupPrices = Object.entries(userGroupMap)
+          .filter(([key]) => model.groups.includes(key))
+          .map(([key, grp]) => {
+            return {
+              groupName: grp.name,
+              groupKey: key,
+              input: grp.ratio * model.price.input,
+              output: grp.ratio * model.price.output,
+              type: model.price.type,
+              ratio: grp.ratio,
+              extraRatios:
+                model.price.extra_ratios
+                  ? Object.fromEntries(Object.entries(model.price.extra_ratios).map(([k, v]) => [k, (grp.ratio * v).toFixed(6)]))
+                  : null
+            };
+          });
 
         return {
           model: modelName,
