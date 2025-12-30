@@ -819,6 +819,31 @@ func (r *relayClaudeOnly) deepCleanSchemaMetaOnly(obj interface{}) interface{} {
 			}
 		}
 
+		// 过滤 required 数组，移除 properties 中不存在的属性名
+		// Gemini API 要求 required 中的属性必须在 properties 中定义
+		if required, hasRequired := cleaned["required"]; hasRequired {
+			if properties, hasProps := cleaned["properties"].(map[string]interface{}); hasProps {
+				if requiredArr, ok := required.([]interface{}); ok {
+					filteredRequired := make([]interface{}, 0)
+					for _, reqItem := range requiredArr {
+						if reqStr, ok := reqItem.(string); ok {
+							if _, exists := properties[reqStr]; exists {
+								filteredRequired = append(filteredRequired, reqItem)
+							}
+						}
+					}
+					if len(filteredRequired) > 0 {
+						cleaned["required"] = filteredRequired
+					} else {
+						delete(cleaned, "required")
+					}
+				}
+			} else {
+				// 没有 properties 时，直接删除 required
+				delete(cleaned, "required")
+			}
+		}
+
 		return cleaned
 	case []interface{}:
 		cleaned := make([]interface{}, len(v))
@@ -962,6 +987,31 @@ func (r *relayClaudeOnly) deepCleanSchema(obj interface{}) interface{} {
 		if _, hasProperties := cleaned["properties"]; hasProperties {
 			if _, hasType := cleaned["type"]; !hasType {
 				cleaned["type"] = "object"
+			}
+		}
+
+		// 过滤 required 数组，移除 properties 中不存在的属性名
+		// Gemini API 要求 required 中的属性必须在 properties 中定义
+		if required, hasRequired := cleaned["required"]; hasRequired {
+			if properties, hasProps := cleaned["properties"].(map[string]interface{}); hasProps {
+				if requiredArr, ok := required.([]interface{}); ok {
+					filteredRequired := make([]interface{}, 0)
+					for _, reqItem := range requiredArr {
+						if reqStr, ok := reqItem.(string); ok {
+							if _, exists := properties[reqStr]; exists {
+								filteredRequired = append(filteredRequired, reqItem)
+							}
+						}
+					}
+					if len(filteredRequired) > 0 {
+						cleaned["required"] = filteredRequired
+					} else {
+						delete(cleaned, "required")
+					}
+				}
+			} else {
+				// 没有 properties 时，直接删除 required
+				delete(cleaned, "required")
 			}
 		}
 
