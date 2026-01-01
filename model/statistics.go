@@ -282,11 +282,7 @@ func UpdateStatistics(updateType StatisticsUpdateType) error {
 	} else {
 		sqlPrefix = "INSERT INTO"
 		// MySQL: 检测 MySQL 时区，决定是否需要转换
-		var mysqlTz string
-		DB.Raw("SELECT @@session.time_zone").Scan(&mysqlTz)
-		mysqlIsUTC := mysqlTz == "UTC" || mysqlTz == "+00:00"
-
-		if mysqlIsUTC {
+		if isMySQLUsingUTC() {
 			// MySQL 是 UTC，需要转换为本地时区
 			hours := offsetSeconds / 3600
 			minutes := (offsetSeconds % 3600) / 60
