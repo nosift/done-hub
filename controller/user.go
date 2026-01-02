@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -436,8 +437,15 @@ func GetRateRealtime(c *gin.Context) {
 func GetUserDashboard(c *gin.Context) {
 	id := c.GetInt("id")
 
-	now := time.Now()
-	toDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	// 使用 TZ 环境变量的时区，与 UpdateStatistics 保持一致
+	location := time.Local
+	if tzEnv := os.Getenv("TZ"); tzEnv != "" {
+		if loc, err := time.LoadLocation(tzEnv); err == nil {
+			location = loc
+		}
+	}
+	now := time.Now().In(location)
+	toDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location)
 	endOfDay := toDay.Add(-time.Second).Add(time.Hour * 24).Format("2006-01-02")
 	startOfDay := toDay.AddDate(0, 0, -7).Format("2006-01-02")
 
