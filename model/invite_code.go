@@ -36,11 +36,36 @@ const (
 	InviteCodeStatusDisabled = 2
 )
 
-// 邀请码锁机制
+// inviteCodeLockEntry 邀请码锁条目，带时间戳用于清理
+type inviteCodeLockEntry struct {
+	lock     *sync.Mutex
+	lastUsed time.Time
+}
+
 var inviteCodeLocks sync.Map
 var inviteCodeCreateLock sync.Mutex
 var redsyncInstance *redsync.Redsync
 var redsyncOnce sync.Once
+
+func init() {
+	go cleanupInviteCodeLocks()
+}
+
+// cleanupInviteCodeLocks 定期清理长时间未使用的邀请码锁
+func cleanupInviteCodeLocks() {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		now := time.Now()
+		inviteCodeLocks.Range(func(key, value interface{}) bool {
+			if entry := value.(*inviteCodeLockEntry); now.Sub(entry.lastUsed) > 30*time.Minute {
+				inviteCodeLocks.Delete(key)
+			}
+			return true
+		})
+	}
+}
 
 // InitInviteCodeLock 初始化邀请码锁系统（按照项目风格）
 func InitInviteCodeLock() {
@@ -57,26 +82,35 @@ func InitInviteCodeLock() {
 
 // LockInviteCode 对邀请码加锁
 func LockInviteCode(code string) {
-	lock, ok := inviteCodeLocks.Load(code)
+	var entry *inviteCodeLockEntry
+	val, ok := inviteCodeLocks.Load(code)
 	if !ok {
 		inviteCodeCreateLock.Lock()
-		defer inviteCodeCreateLock.Unlock()
-		lock, ok = inviteCodeLocks.Load(code)
+		val, ok = inviteCodeLocks.Load(code)
 		if !ok {
-			lock = new(sync.Mutex)
-			inviteCodeLocks.Store(code, lock)
+			entry = &inviteCodeLockEntry{
+				lock:     new(sync.Mutex),
+				lastUsed: time.Now(),
+			}
+			inviteCodeLocks.Store(code, entry)
+		} else {
+			entry = val.(*inviteCodeLockEntry)
 		}
+		inviteCodeCreateLock.Unlock()
+	} else {
+		entry = val.(*inviteCodeLockEntry)
 	}
-	lock.(*sync.Mutex).Lock()
+	entry.lastUsed = time.Now()
+	entry.lock.Lock()
 }
 
 // UnlockInviteCode 释放邀请码锁
 func UnlockInviteCode(code string) {
-	lock, ok := inviteCodeLocks.Load(code)
+	val, ok := inviteCodeLocks.Load(code)
 	if ok {
-		lock.(*sync.Mutex).Unlock()
-		// 可选：清理长时间未使用的锁（简单实现，避免内存泄漏）
-		// 在生产环境中可以考虑更复杂的LRU清理策略
+		entry := val.(*inviteCodeLockEntry)
+		entry.lastUsed = time.Now()
+		entry.lock.Unlock()
 	}
 }
 

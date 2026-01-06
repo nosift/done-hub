@@ -331,15 +331,15 @@ func responseStreamClient(c *gin.Context, stream requester.StreamReaderInterface
 	requester.SetEventStreamHeaders(c)
 	dataChan, errChan := stream.Recv()
 
-	// 创建一个done channel用于通知处理完成
 	done := make(chan struct{})
 	var finalErr *types.OpenAIErrorWithStatusCode
 
 	defer stream.Close()
 
 	var isFirstResponse bool
+	ctx := c.Request.Context()
+	clientDisconnected := false
 
-	// 在新的goroutine中处理stream数据
 	go func() {
 		defer close(done)
 
@@ -349,85 +349,79 @@ func responseStreamClient(c *gin.Context, stream requester.StreamReaderInterface
 				if !ok {
 					return
 				}
-				streamData := "data: " + data + "\n\n"
 
 				if !isFirstResponse {
 					firstResponseTime = time.Now()
 					isFirstResponse = true
 				}
 
-				// 尝试写入数据，如果客户端断开也继续处理
-				select {
-				case <-c.Request.Context().Done():
-					// 客户端已断开，不执行任何操作，直接跳过
-				default:
-					// 客户端正常，发送数据
-					c.Writer.Write([]byte(streamData))
-					c.Writer.Flush()
+				// 客户端断开后继续消费数据以确保计费准确，但不写入
+				if !clientDisconnected {
+					select {
+					case <-ctx.Done():
+						clientDisconnected = true
+					default:
+						c.Writer.Write([]byte("data: " + data + "\n\n"))
+						c.Writer.Flush()
+					}
 				}
 
 			case err := <-errChan:
 				if !errors.Is(err, io.EOF) {
-					// 处理错误情况
-					errMsg := "data: " + err.Error() + "\n\n"
-					select {
-					case <-c.Request.Context().Done():
-						// 客户端已断开，不执行任何操作，直接跳过
-					default:
-						// 客户端正常，发送错误信息
-						c.Writer.Write([]byte(errMsg))
-						c.Writer.Flush()
+					if !clientDisconnected {
+						select {
+						case <-ctx.Done():
+							clientDisconnected = true
+						default:
+							c.Writer.Write([]byte("data: " + err.Error() + "\n\n"))
+							c.Writer.Flush()
+						}
 					}
-
 					finalErr = common.StringErrorWrapper(err.Error(), "stream_error", 900)
 					logger.LogError(c.Request.Context(), "Stream err:"+err.Error())
 				} else {
-					// 正常结束，处理endHandler
 					if finalErr == nil && endHandler != nil {
-						streamData := endHandler()
-						if streamData != "" {
+						if streamData := endHandler(); streamData != "" && !clientDisconnected {
 							select {
-							case <-c.Request.Context().Done():
-								// 客户端已断开，不执行任何操作，直接跳过
+							case <-ctx.Done():
 							default:
-								// 客户端正常，发送数据
 								c.Writer.Write([]byte("data: " + streamData + "\n\n"))
 								c.Writer.Flush()
 							}
 						}
 					}
-
-					// 发送结束标记
-					streamData := "data: [DONE]\n\n"
-					select {
-					case <-c.Request.Context().Done():
-						// 客户端已断开，不执行任何操作，直接跳过
-					default:
-						c.Writer.Write([]byte(streamData))
-						c.Writer.Flush()
+					if !clientDisconnected {
+						select {
+						case <-ctx.Done():
+						default:
+							c.Writer.Write([]byte("data: [DONE]\n\n"))
+							c.Writer.Flush()
+						}
 					}
 				}
 				return
+
+			case <-ctx.Done():
+				clientDisconnected = true
 			}
 		}
 	}()
 
-	// 等待处理完成
 	<-done
-	return firstResponseTime, nil
+	return firstResponseTime, finalErr
 }
 
 func responseGeneralStreamClient(c *gin.Context, stream requester.StreamReaderInterface[string], endHandler StreamEndHandler) (firstResponseTime time.Time) {
 	requester.SetEventStreamHeaders(c)
 	dataChan, errChan := stream.Recv()
 
-	// 创建一个done channel用于通知处理完成
 	done := make(chan struct{})
-
 	defer stream.Close()
-	var isFirstResponse bool
 
-	// 在新的goroutine中处理stream数据
+	var isFirstResponse bool
+	ctx := c.Request.Context()
+	clientDisconnected := false
+
 	go func() {
 		defer close(done)
 
@@ -441,39 +435,34 @@ func responseGeneralStreamClient(c *gin.Context, stream requester.StreamReaderIn
 					firstResponseTime = time.Now()
 					isFirstResponse = true
 				}
-				// 尝试写入数据，如果客户端断开也继续处理
-				select {
-				case <-c.Request.Context().Done():
-					// 客户端已断开，不执行任何操作，直接跳过
-				default:
-					// 客户端正常，发送数据
-					fmt.Fprint(c.Writer, data)
-					c.Writer.Flush()
+				if !clientDisconnected {
+					select {
+					case <-ctx.Done():
+						clientDisconnected = true
+					default:
+						fmt.Fprint(c.Writer, data)
+						c.Writer.Flush()
+					}
 				}
 
 			case err := <-errChan:
 				if !errors.Is(err, io.EOF) {
-					// 处理错误情况
-					select {
-					case <-c.Request.Context().Done():
-						// 客户端已断开，不执行任何操作，直接跳过
-					default:
-						// 客户端正常，发送错误信息
-						fmt.Fprint(c.Writer, err.Error())
-						c.Writer.Flush()
+					if !clientDisconnected {
+						select {
+						case <-ctx.Done():
+							clientDisconnected = true
+						default:
+							fmt.Fprint(c.Writer, err.Error())
+							c.Writer.Flush()
+						}
 					}
-
 					logger.LogError(c.Request.Context(), "Stream err:"+err.Error())
 				} else {
-					// 正常结束，处理endHandler
 					if endHandler != nil {
-						streamData := endHandler()
-						if streamData != "" {
+						if streamData := endHandler(); streamData != "" && !clientDisconnected {
 							select {
-							case <-c.Request.Context().Done():
-								// 客户端已断开，只记录数据
+							case <-ctx.Done():
 							default:
-								// 客户端正常，发送数据
 								fmt.Fprint(c.Writer, streamData)
 								c.Writer.Flush()
 							}
@@ -481,13 +470,14 @@ func responseGeneralStreamClient(c *gin.Context, stream requester.StreamReaderIn
 					}
 				}
 				return
+
+			case <-ctx.Done():
+				clientDisconnected = true
 			}
 		}
 	}()
 
-	// 等待处理完成
 	<-done
-
 	return firstResponseTime
 }
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"time"
 
 	"done-hub/common"
 	"done-hub/common/config"
@@ -100,30 +101,66 @@ func CreateOrder(c *gin.Context) {
 	})
 }
 
-// tradeNo lock
+// orderLockEntry 订单锁条目，带时间戳用于清理
+type orderLockEntry struct {
+	lock     *sync.Mutex
+	lastUsed time.Time
+}
+
 var orderLocks sync.Map
 var createLock sync.Mutex
 
+func init() {
+	go cleanupOrderLocks()
+}
+
+// cleanupOrderLocks 定期清理长时间未使用的订单锁
+func cleanupOrderLocks() {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		now := time.Now()
+		orderLocks.Range(func(key, value interface{}) bool {
+			if entry := value.(*orderLockEntry); now.Sub(entry.lastUsed) > 30*time.Minute {
+				orderLocks.Delete(key)
+			}
+			return true
+		})
+	}
+}
+
 // LockOrder 尝试对给定订单号加锁
 func LockOrder(tradeNo string) {
-	lock, ok := orderLocks.Load(tradeNo)
+	var entry *orderLockEntry
+	val, ok := orderLocks.Load(tradeNo)
 	if !ok {
 		createLock.Lock()
-		defer createLock.Unlock()
-		lock, ok = orderLocks.Load(tradeNo)
+		val, ok = orderLocks.Load(tradeNo)
 		if !ok {
-			lock = new(sync.Mutex)
-			orderLocks.Store(tradeNo, lock)
+			entry = &orderLockEntry{
+				lock:     new(sync.Mutex),
+				lastUsed: time.Now(),
+			}
+			orderLocks.Store(tradeNo, entry)
+		} else {
+			entry = val.(*orderLockEntry)
 		}
+		createLock.Unlock()
+	} else {
+		entry = val.(*orderLockEntry)
 	}
-	lock.(*sync.Mutex).Lock()
+	entry.lastUsed = time.Now()
+	entry.lock.Lock()
 }
 
 // UnlockOrder 释放给定订单号的锁
 func UnlockOrder(tradeNo string) {
-	lock, ok := orderLocks.Load(tradeNo)
+	val, ok := orderLocks.Load(tradeNo)
 	if ok {
-		lock.(*sync.Mutex).Unlock()
+		entry := val.(*orderLockEntry)
+		entry.lastUsed = time.Now()
+		entry.lock.Unlock()
 	}
 }
 
