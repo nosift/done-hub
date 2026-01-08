@@ -79,9 +79,9 @@ func FilterDisabledStream(modelName string) ChannelsFilterFunc {
 }
 
 func init() {
-	// 每30分钟清理一次过期的冷却时间，加快内存回收
+	// 每5分钟清理一次过期的冷却时间，加快内存回收
 	go func() {
-		ticker := time.NewTicker(30 * time.Minute)
+		ticker := time.NewTicker(5 * time.Minute)
 		for range ticker.C {
 			ChannelGroup.CleanupExpiredCooldowns()
 		}
