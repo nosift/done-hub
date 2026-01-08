@@ -448,3 +448,21 @@ func (p *BaseProvider) GetRawBody() ([]byte, bool) {
 func (p *BaseProvider) ClearRawBody() {
 	p.Context.Set(config.GinRequestBodyKey, nil)
 }
+
+// GetProcessedBody 获取已处理的 Gemini 请求体，返回：map、是否 VertexAI 模式、是否存在
+func (p *BaseProvider) GetProcessedBody() (map[string]interface{}, bool, bool) {
+	if processed, exists := p.Context.Get(config.GinProcessedBodyKey); exists {
+		if dataMap, ok := processed.(map[string]interface{}); ok {
+			isVertexAI, _ := p.Context.Get(config.GinProcessedBodyIsVertexAI)
+			return dataMap, isVertexAI == true, true
+		}
+	}
+	return nil, false, false
+}
+
+// SetProcessedBody 缓存处理后的 Gemini 请求体，同时清理原始请求体以释放内存
+func (p *BaseProvider) SetProcessedBody(dataMap map[string]interface{}, isVertexAI bool) {
+	p.Context.Set(config.GinProcessedBodyKey, dataMap)
+	p.Context.Set(config.GinProcessedBodyIsVertexAI, isVertexAI)
+	p.Context.Set(config.GinRequestBodyKey, nil)
+}

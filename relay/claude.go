@@ -74,6 +74,9 @@ func (r *relayClaudeOnly) getPromptTokens() (int, error) {
 
 func (r *relayClaudeOnly) send() (err *types.OpenAIErrorWithStatusCode, done bool) {
 
+	// 应用 Claude Thinking 约束校验（tool_choice 冲突检测 + max_tokens 自动调整）
+	r.applyClaudeThinkingConstraints()
+
 	// 检查是否为自定义渠道，如果是则使用Claude->OpenAI->Claude的转换逻辑
 	channelType := r.provider.GetChannel().Type
 
@@ -2107,4 +2110,38 @@ func (r *relayClaudeOnly) isClaudeThinkingEnabled() bool {
 
 	// 检查 thinking 参数的 type 是否为 "enabled"
 	return r.claudeRequest.Thinking.Type == "enabled"
+}
+
+// applyClaudeThinkingConstraints 应用 Claude Thinking 约束校验
+// 1. tool_choice 强制工具使用时禁用 thinking（Anthropic API 限制）
+// 2. 确保 max_tokens > thinking.budget_tokens
+func (r *relayClaudeOnly) applyClaudeThinkingConstraints() {
+	if r.claudeRequest == nil || r.claudeRequest.Thinking == nil {
+		return
+	}
+
+	// 约束1: tool_choice="any"/"tool" 与 thinking 互斥
+	if r.claudeRequest.ToolChoice != nil {
+		toolChoiceType := r.claudeRequest.ToolChoice.Type
+		if toolChoiceType == "any" || toolChoiceType == "tool" {
+			r.claudeRequest.Thinking = nil
+			return
+		}
+	}
+
+	// 约束2: 确保 max_tokens > thinking.budget_tokens
+	if r.claudeRequest.Thinking.Type != "enabled" {
+		return
+	}
+
+	budgetTokens := r.claudeRequest.Thinking.BudgetTokens
+	if budgetTokens <= 0 {
+		return
+	}
+
+	const fallbackBuffer = 4000
+	requiredMaxTokens := budgetTokens + fallbackBuffer
+	if r.claudeRequest.MaxTokens < requiredMaxTokens {
+		r.claudeRequest.MaxTokens = requiredMaxTokens
+	}
 }

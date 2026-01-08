@@ -96,19 +96,28 @@ func (p *VertexAIProvider) getGeminiRequest(request *gemini.GeminiChatRequest) (
 		headers["Accept"] = "text/event-stream"
 	}
 
-	rawData, exists := p.GetRawBody()
-	if !exists {
-		return nil, common.StringErrorWrapperLocal("request body not found", "request_body_not_found", http.StatusInternalServerError)
-	}
-
 	// 错误处理
 	p.Requester.ErrorHandler = RequestErrorHandle(p.Category.ErrorHandler)
 
-	var dataMap map[string]interface{}
-	if err := json.Unmarshal(rawData, &dataMap); err != nil {
-		return nil, common.ErrorWrapper(err, "unmarshal_vertexai_gemini_data_failed", http.StatusInternalServerError)
+	// 尝试获取已处理的请求体（重试时复用）
+	dataMap, wasVertexAI, exists := p.GetProcessedBody()
+	if !exists || !wasVertexAI {
+		rawData, rawExists := p.GetRawBody()
+		if !rawExists {
+			if exists {
+				gemini.CleanGeminiRequestMap(dataMap, true)
+			} else {
+				return nil, common.StringErrorWrapperLocal("request body not found", "request_body_not_found", http.StatusInternalServerError)
+			}
+		} else {
+			dataMap = make(map[string]interface{})
+			if err := json.Unmarshal(rawData, &dataMap); err != nil {
+				return nil, common.ErrorWrapper(err, "unmarshal_vertexai_gemini_data_failed", http.StatusInternalServerError)
+			}
+			gemini.CleanGeminiRequestMap(dataMap, true)
+		}
+		p.SetProcessedBody(dataMap, true)
 	}
-	gemini.CleanGeminiRequestMap(dataMap, true)
 
 	// 使用BaseProvider的统一方法创建请求，支持额外参数处理
 	req, errWithCode := p.NewRequestWithCustomParams(http.MethodPost, fullRequestURL, dataMap, headers, request.Model)

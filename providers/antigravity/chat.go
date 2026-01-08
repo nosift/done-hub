@@ -2,6 +2,7 @@ package antigravity
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"done-hub/common"
 	"done-hub/common/logger"
 	"done-hub/common/requester"
@@ -9,9 +10,11 @@ import (
 	"done-hub/providers/base"
 	"done-hub/providers/gemini"
 	"done-hub/types"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -107,9 +110,8 @@ func fixNilToolParameters(geminiRequest *gemini.GeminiChatRequest) {
 	}
 }
 
-// generateRequestID 生成请求 ID
 func generateRequestID() string {
-	return fmt.Sprintf("req-%s", uuid.New().String())
+	return "agent-" + uuid.New().String()
 }
 
 // getChatRequest 构建内部API请求
@@ -131,34 +133,34 @@ func (p *AntigravityProvider) getChatRequest(geminiRequest *gemini.GeminiChatReq
 	// 只有在 relay 模式下才清理数据（与 gemini provider 保持一致）
 	var geminiRequestBody any
 	if isRelay {
-		// 使用原始请求体（避免序列化/反序列化导致数据丢失）
-		rawData, exists := p.GetRawBody()
+		// 尝试获取已处理的请求体（重试时复用）
+		rawMap, _, exists := p.GetProcessedBody()
 		if !exists {
-			return nil, common.StringErrorWrapperLocal("request body not found", "request_body_not_found", http.StatusInternalServerError)
-		}
+			rawData, rawExists := p.GetRawBody()
+			if !rawExists {
+				return nil, common.StringErrorWrapperLocal("request body not found", "request_body_not_found", http.StatusInternalServerError)
+			}
 
-		// 直接在原始数据上操作，避免多次序列化/反序列化
-		var rawMap map[string]interface{}
-		if err := json.Unmarshal(rawData, &rawMap); err != nil {
-			return nil, common.ErrorWrapper(err, "unmarshal_request_failed", http.StatusInternalServerError)
-		}
+			rawMap = make(map[string]interface{})
+			if err := json.Unmarshal(rawData, &rawMap); err != nil {
+				return nil, common.ErrorWrapper(err, "unmarshal_request_failed", http.StatusInternalServerError)
+			}
 
-		// 确保 contents 中每个 content 都有 role 字段
-		// 注意：不删除 functionCall/functionResponse 的 id 字段，Antigravity API 支持该字段
-		if contents, ok := rawMap["contents"].([]interface{}); ok {
-			for _, content := range contents {
-				if contentMap, ok := content.(map[string]interface{}); ok {
-					// 确保每个 content 都有 role 字段
-					if _, hasRole := contentMap["role"]; !hasRole {
-						contentMap["role"] = "user"
+			// 确保 contents 中每个 content 都有 role 字段
+			if contents, ok := rawMap["contents"].([]interface{}); ok {
+				for _, content := range contents {
+					if contentMap, ok := content.(map[string]interface{}); ok {
+						if _, hasRole := contentMap["role"]; !hasRole {
+							contentMap["role"] = "user"
+						}
 					}
 				}
 			}
+
+			delete(rawMap, "model")
+			p.SetProcessedBody(rawMap, false)
 		}
 
-		delete(rawMap, "model")
-
-		// 使用清理后的原始数据作为 Gemini 请求体
 		geminiRequestBody = rawMap
 	} else {
 		geminiRequestBody = geminiRequest
@@ -215,22 +217,47 @@ func (p *AntigravityProvider) getChatRequest(geminiRequest *gemini.GeminiChatReq
 		}
 	}
 
-	requestMap["session_id"] = fmt.Sprintf("session-%s", uuid.New().String())
-
-	// Antigravity 不需要 safetySettings
-	delete(requestMap, "safetySettings")
+	requestMap["sessionId"] = generateStableSessionID(requestMap)
 
 	applyAntigravityGenerationConfigDefaults(requestMap)
 	convertToolsToAntigravityFormat(requestMap)
 	applyToolConfig(requestMap)
 	reorganizeToolMessages(requestMap)
 
+	// 为 functionCall 添加 thoughtSignature sentinel（绕过签名验证）
+	applyThinkingSignatureSentinel(requestMap)
+
+	// Claude 模型特殊处理：添加 Antigravity 前置提示
+	isClaudeModel := strings.Contains(strings.ToLower(geminiRequest.Model), "claude")
+	isGemini3Pro := strings.Contains(geminiRequest.Model, "gemini-3-pro-preview")
+	if isClaudeModel || isGemini3Pro {
+		applyAntigravitySystemInstruction(requestMap)
+	}
+
+	delete(requestMap, "safetySettings")
+
+	// 非 gemini-3- 开头的模型：处理 thinkingConfig
+	if !strings.HasPrefix(geminiRequest.Model, "gemini-3-") {
+		applyThinkingBudgetFallback(requestMap)
+	}
+
+	// 非 claude 模型：删除 maxOutputTokens
+	if !isClaudeModel {
+		deleteMaxOutputTokens(requestMap)
+	}
+
+	projectID := p.ProjectID
+	if projectID == "" {
+		projectID = generateRandomProjectID()
+	}
+
 	requestBody := map[string]interface{}{
-		"model":     geminiRequest.Model,
-		"project":   p.ProjectID,
-		"requestId": generateRequestID(),
-		"userAgent": "antigravity",
-		"request":   requestMap,
+		"model":       geminiRequest.Model,
+		"project":     projectID,
+		"requestId":   generateRequestID(),
+		"requestType": "agent",
+		"userAgent":   "antigravity",
+		"request":     requestMap,
 	}
 
 	req, err := p.Requester.NewRequest(http.MethodPost, fullRequestURL, p.Requester.WithBody(requestBody), p.Requester.WithHeader(headers))
@@ -458,6 +485,12 @@ func convertToolsToAntigravityFormat(requestMap map[string]interface{}) {
 	// 重新构建 tools：每个 function declaration 独立包装
 	newTools := make([]interface{}, 0, len(allFunctionDecls)+len(nonFunctionTools))
 	for _, funcDecl := range allFunctionDecls {
+		if funcDeclMap, ok := funcDecl.(map[string]interface{}); ok {
+			if params, hasParams := funcDeclMap["parameters"]; hasParams {
+				funcDeclMap["parametersJsonSchema"] = params
+				delete(funcDeclMap, "parameters")
+			}
+		}
 		newTools = append(newTools, map[string]interface{}{
 			"functionDeclarations": []interface{}{funcDecl},
 		})
@@ -600,4 +633,178 @@ func applyToolConfig(requestMap map[string]interface{}) {
 			}
 		}
 	}
+}
+
+// Antigravity 系统提示前置文本
+const antigravitySystemPromptPrefix = "You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding.You are pair programming with a USER to solve their coding task. The task may require creating a new codebase, modifying or debugging an existing codebase, or simply answering a question.**Absolute paths only****Proactiveness**"
+
+// applyAntigravitySystemInstruction 为 Claude/Gemini-3 模型添加 Antigravity 特殊系统提示
+func applyAntigravitySystemInstruction(requestMap map[string]interface{}) {
+	existingParts := []interface{}{}
+	if sysInstr, exists := requestMap["systemInstruction"]; exists {
+		if sysInstrMap, ok := sysInstr.(map[string]interface{}); ok {
+			if parts, partsOk := sysInstrMap["parts"].([]interface{}); partsOk {
+				existingParts = parts
+			}
+		}
+	}
+
+	newParts := []interface{}{
+		map[string]interface{}{
+			"text": antigravitySystemPromptPrefix,
+		},
+	}
+	newParts = append(newParts, existingParts...)
+
+	requestMap["systemInstruction"] = map[string]interface{}{
+		"role":  "user",
+		"parts": newParts,
+	}
+}
+
+// generateStableSessionID 根据第一条用户消息生成稳定的 session ID
+func generateStableSessionID(requestMap map[string]interface{}) string {
+	contents, ok := requestMap["contents"].([]interface{})
+	if !ok {
+		return generateRandomSessionID()
+	}
+
+	for _, content := range contents {
+		contentMap, ok := content.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		role, _ := contentMap["role"].(string)
+		if role != "user" {
+			continue
+		}
+
+		parts, ok := contentMap["parts"].([]interface{})
+		if !ok || len(parts) == 0 {
+			continue
+		}
+
+		for _, part := range parts {
+			partMap, ok := part.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if text, textOk := partMap["text"].(string); textOk && text != "" {
+				h := sha256.Sum256([]byte(text))
+				n := int64(binary.BigEndian.Uint64(h[:8])) & 0x7FFFFFFFFFFFFFFF
+				return "-" + strconv.FormatInt(n, 10)
+			}
+		}
+	}
+
+	return generateRandomSessionID()
+}
+
+func generateRandomSessionID() string {
+	return "-" + strconv.FormatInt(int64(uuid.New().ID()), 10)
+}
+
+func generateRandomProjectID() string {
+	adjectives := []string{"useful", "bright", "swift", "calm", "bold"}
+	nouns := []string{"fuze", "wave", "spark", "flow", "core"}
+	id := uuid.New()
+	adj := adjectives[id.ID()%uint32(len(adjectives))]
+	noun := nouns[id.ID()%uint32(len(nouns))]
+	randomPart := strings.ToLower(id.String())[:5]
+	return adj + "-" + noun + "-" + randomPart
+}
+
+// skipThoughtSignatureValidator 用于绕过 Antigravity API 的 thoughtSignature 验证
+const skipThoughtSignatureValidator = "skip_thought_signature_validator"
+
+// applyThinkingSignatureSentinel 为 functionCall 添加 thoughtSignature sentinel 并移除 thinking blocks
+func applyThinkingSignatureSentinel(requestMap map[string]interface{}) {
+	contents, ok := requestMap["contents"].([]interface{})
+	if !ok {
+		return
+	}
+
+	for contentIdx, content := range contents {
+		contentMap, ok := content.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		role, _ := contentMap["role"].(string)
+		if role != "model" {
+			continue
+		}
+
+		parts, ok := contentMap["parts"].([]interface{})
+		if !ok {
+			continue
+		}
+
+		var thinkingIndicesToRemove []int
+
+		for partIdx, part := range parts {
+			partMap, ok := part.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			if thought, _ := partMap["thought"].(bool); thought {
+				thinkingIndicesToRemove = append(thinkingIndicesToRemove, partIdx)
+			}
+
+			if _, hasFunctionCall := partMap["functionCall"]; hasFunctionCall {
+				existingSig, _ := partMap["thoughtSignature"].(string)
+				if existingSig == "" || len(existingSig) < 50 {
+					partMap["thoughtSignature"] = skipThoughtSignatureValidator
+				}
+			}
+		}
+
+		if len(thinkingIndicesToRemove) > 0 {
+			newParts := make([]interface{}, 0, len(parts)-len(thinkingIndicesToRemove))
+			removeSet := make(map[int]bool)
+			for _, idx := range thinkingIndicesToRemove {
+				removeSet[idx] = true
+			}
+			for idx, part := range parts {
+				if !removeSet[idx] {
+					newParts = append(newParts, part)
+				}
+			}
+			contentMap["parts"] = newParts
+		}
+
+		// 更新 contents
+		contents[contentIdx] = contentMap
+	}
+
+	requestMap["contents"] = contents
+}
+
+// applyThinkingBudgetFallback 非 gemini-3- 模型：如果有 thinkingLevel，删除并设置 thinkingBudget: -1
+func applyThinkingBudgetFallback(requestMap map[string]interface{}) {
+	genConfig, ok := requestMap["generationConfig"].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	thinkingConfig, ok := genConfig["thinkingConfig"].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	if _, hasThinkingLevel := thinkingConfig["thinkingLevel"]; hasThinkingLevel {
+		delete(thinkingConfig, "thinkingLevel")
+		thinkingConfig["thinkingBudget"] = -1
+	}
+}
+
+// deleteMaxOutputTokens 删除 generationConfig.maxOutputTokens
+func deleteMaxOutputTokens(requestMap map[string]interface{}) {
+	genConfig, ok := requestMap["generationConfig"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	delete(genConfig, "maxOutputTokens")
 }

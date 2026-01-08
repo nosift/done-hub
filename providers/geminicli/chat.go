@@ -98,44 +98,40 @@ func (p *GeminiCliProvider) getChatRequest(geminiRequest *gemini.GeminiChatReque
 	// 只有在 relay 模式下才清理数据（与 gemini provider 保持一致）
 	var geminiRequestBody any
 	if isRelay {
-		// 使用原始请求体（避免序列化/反序列化导致数据丢失）
-		rawData, exists := p.GetRawBody()
+		// 尝试获取已处理的请求体（重试时复用）
+		rawMap, _, exists := p.GetProcessedBody()
 		if !exists {
-			return nil, common.StringErrorWrapperLocal("request body not found", "request_body_not_found", http.StatusInternalServerError)
-		}
+			rawData, rawExists := p.GetRawBody()
+			if !rawExists {
+				return nil, common.StringErrorWrapperLocal("request body not found", "request_body_not_found", http.StatusInternalServerError)
+			}
 
-		// 直接在原始数据上操作，避免多次序列化/反序列化
-		var rawMap map[string]interface{}
-		if err := json.Unmarshal(rawData, &rawMap); err != nil {
-			return nil, common.ErrorWrapper(err, "unmarshal_request_failed", http.StatusInternalServerError)
-		}
+			rawMap = make(map[string]interface{})
+			if err := json.Unmarshal(rawData, &rawMap); err != nil {
+				return nil, common.ErrorWrapper(err, "unmarshal_request_failed", http.StatusInternalServerError)
+			}
 
-		// 清理 contents 中的 role 和 id 字段
-		if contents, ok := rawMap["contents"].([]interface{}); ok {
-			for _, content := range contents {
-				if contentMap, ok := content.(map[string]interface{}); ok {
-					// 确保每个 content 都有 role 字段
-					if _, hasRole := contentMap["role"]; !hasRole {
-						contentMap["role"] = "user"
-					}
+			// 清理 contents 中的 role 和 id 字段
+			if contents, ok := rawMap["contents"].([]interface{}); ok {
+				for _, content := range contents {
+					if contentMap, ok := content.(map[string]interface{}); ok {
+						if _, hasRole := contentMap["role"]; !hasRole {
+							contentMap["role"] = "user"
+						}
 
-					// 清理 parts 中的 function_call 和 function_response 的 id 字段
-					if parts, ok := contentMap["parts"].([]interface{}); ok {
-						for _, part := range parts {
-							if partMap, ok := part.(map[string]interface{}); ok {
-								// 检查所有可能的字段名：functionCall, function_call
-								fieldNames := []string{"functionCall", "function_call"}
-								for _, fieldName := range fieldNames {
-									if functionCall, ok := partMap[fieldName].(map[string]interface{}); ok {
-										delete(functionCall, "id")
+						// 清理 parts 中的 function_call 和 function_response 的 id 字段
+						if parts, ok := contentMap["parts"].([]interface{}); ok {
+							for _, part := range parts {
+								if partMap, ok := part.(map[string]interface{}); ok {
+									for _, fn := range []string{"functionCall", "function_call"} {
+										if fc, ok := partMap[fn].(map[string]interface{}); ok {
+											delete(fc, "id")
+										}
 									}
-								}
-
-								// 检查所有可能的 function_response 字段名：functionResponse, function_response
-								responseFieldNames := []string{"functionResponse", "function_response"}
-								for _, fieldName := range responseFieldNames {
-									if functionResponse, ok := partMap[fieldName].(map[string]interface{}); ok {
-										delete(functionResponse, "id")
+									for _, fn := range []string{"functionResponse", "function_response"} {
+										if fr, ok := partMap[fn].(map[string]interface{}); ok {
+											delete(fr, "id")
+										}
 									}
 								}
 							}
@@ -143,11 +139,11 @@ func (p *GeminiCliProvider) getChatRequest(geminiRequest *gemini.GeminiChatReque
 					}
 				}
 			}
+
+			delete(rawMap, "model")
+			p.SetProcessedBody(rawMap, false)
 		}
 
-		delete(rawMap, "model")
-
-		// 使用清理后的原始数据作为 Gemini 请求体
 		geminiRequestBody = rawMap
 	} else {
 		geminiRequestBody = geminiRequest
