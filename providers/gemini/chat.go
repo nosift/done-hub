@@ -48,7 +48,6 @@ func (p *GeminiProvider) CreateChatCompletion(request *types.ChatCompletionReque
 		return nil, errWithCode
 	}
 	defer req.Body.Close()
-	p.ClearRawBody()
 
 	geminiChatResponse := &GeminiChatResponse{}
 	// 发送请求
@@ -77,7 +76,6 @@ func (p *GeminiProvider) CreateChatCompletionStream(request *types.ChatCompletio
 		return nil, errWithCode
 	}
 	defer req.Body.Close()
-	p.ClearRawBody()
 
 	// 发送请求
 	resp, errWithCode := p.Requester.SendRequestRaw(req)
@@ -110,16 +108,16 @@ func (p *GeminiProvider) getChatRequest(geminiRequest *GeminiChatRequest, isRela
 
 	var body any
 	if isRelay {
-		var exists bool
 		rawData, exists := p.GetRawBody()
 		if !exists {
 			return nil, common.StringErrorWrapperLocal("request body not found", "request_body_not_found", http.StatusInternalServerError)
 		}
-		cleanedData, err := CleanGeminiRequestData(rawData, false)
-		if err != nil {
-			return nil, common.ErrorWrapper(err, "clean_relay_data_failed", http.StatusInternalServerError)
+		var dataMap map[string]interface{}
+		if err := json.Unmarshal(rawData, &dataMap); err != nil {
+			return nil, common.ErrorWrapper(err, "unmarshal_relay_data_failed", http.StatusInternalServerError)
 		}
-		body = cleanedData
+		CleanGeminiRequestMap(dataMap, false)
+		body = dataMap
 	} else {
 		p.pluginHandle(geminiRequest)
 		body = geminiRequest
@@ -171,7 +169,12 @@ func CleanGeminiRequestData(rawData []byte, isVertexAI bool) ([]byte, error) {
 	if err := json.Unmarshal(rawData, &data); err != nil {
 		return nil, err
 	}
+	CleanGeminiRequestMap(data, isVertexAI)
+	return json.Marshal(data)
+}
 
+// CleanGeminiRequestMap 直接在 map 上清理 Gemini 请求数据中的不兼容字段
+func CleanGeminiRequestMap(data map[string]interface{}, isVertexAI bool) {
 	// 清理 contents 中的 function_call 和 function_response 字段中的 id
 	if contents, ok := data["contents"].([]interface{}); ok {
 		// 验证和修复函数调用序列
@@ -269,8 +272,6 @@ func CleanGeminiRequestData(rawData []byte, isVertexAI bool) ([]byte, error) {
 			}
 		}
 	}
-
-	return json.Marshal(data)
 }
 
 // validateAndFixFunctionCallSequence 验证和修复函数调用序列

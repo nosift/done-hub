@@ -31,7 +31,6 @@ func (p *GeminiCliProvider) CreateChatCompletion(request *types.ChatCompletionRe
 		return nil, errWithCode
 	}
 	defer req.Body.Close()
-	p.ClearRawBody()
 
 	// 使用包装的响应结构
 	cliResponse := &GeminiCliResponse{}
@@ -63,7 +62,6 @@ func (p *GeminiCliProvider) CreateChatCompletionStream(request *types.ChatComple
 		return nil, errWithCode
 	}
 	defer req.Body.Close()
-	p.ClearRawBody()
 
 	// 发送请求
 	resp, errWithCode := p.Requester.SendRequestRaw(req)

@@ -6,6 +6,7 @@ import (
 	"done-hub/providers/gemini"
 	"done-hub/providers/vertexai/category"
 	"done-hub/types"
+	"encoding/json"
 	"net/http"
 	"strings"
 )
@@ -16,7 +17,6 @@ func (p *VertexAIProvider) CreateGeminiChat(request *gemini.GeminiChatRequest) (
 		return nil, errWithCode
 	}
 	defer req.Body.Close()
-	p.ClearRawBody()
 
 	geminiResponse := &gemini.GeminiChatResponse{}
 	// 发送请求
@@ -45,7 +45,6 @@ func (p *VertexAIProvider) CreateGeminiChatStream(request *gemini.GeminiChatRequ
 		return nil, errWithCode
 	}
 	defer req.Body.Close()
-	p.ClearRawBody()
 
 	channel := p.GetChannel()
 
@@ -105,14 +104,14 @@ func (p *VertexAIProvider) getGeminiRequest(request *gemini.GeminiChatRequest) (
 	// 错误处理
 	p.Requester.ErrorHandler = RequestErrorHandle(p.Category.ErrorHandler)
 
-	// 清理原始 JSON 数据中不兼容的字段
-	cleanedData, err := gemini.CleanGeminiRequestData(rawData, true)
-	if err != nil {
-		return nil, common.ErrorWrapper(err, "clean_vertexai_gemini_data_failed", http.StatusInternalServerError)
+	var dataMap map[string]interface{}
+	if err := json.Unmarshal(rawData, &dataMap); err != nil {
+		return nil, common.ErrorWrapper(err, "unmarshal_vertexai_gemini_data_failed", http.StatusInternalServerError)
 	}
+	gemini.CleanGeminiRequestMap(dataMap, true)
 
 	// 使用BaseProvider的统一方法创建请求，支持额外参数处理
-	req, errWithCode := p.NewRequestWithCustomParams(http.MethodPost, fullRequestURL, cleanedData, headers, request.Model)
+	req, errWithCode := p.NewRequestWithCustomParams(http.MethodPost, fullRequestURL, dataMap, headers, request.Model)
 	if errWithCode != nil {
 		return nil, errWithCode
 	}

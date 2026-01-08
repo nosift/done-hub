@@ -35,7 +35,6 @@ func (p *AntigravityProvider) CreateChatCompletion(request *types.ChatCompletion
 		return nil, errWithCode
 	}
 	defer req.Body.Close()
-	p.ClearRawBody()
 
 	// 使用包装的响应结构
 	antigravityResponse := &AntigravityResponse{}
@@ -70,7 +69,6 @@ func (p *AntigravityProvider) CreateChatCompletionStream(request *types.ChatComp
 		return nil, errWithCode
 	}
 	defer req.Body.Close()
-	p.ClearRawBody()
 
 	// 发送请求
 	resp, errWithCode := p.Requester.SendRequestRaw(req)

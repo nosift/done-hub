@@ -40,7 +40,6 @@ func (p *VertexAIProvider) Send(request *types.ChatCompletionRequest) (*http.Res
 		return nil, errWithCode
 	}
 	defer req.Body.Close()
-	p.ClearRawBody()
 
 	// 发送请求
 	return p.Requester.SendRequestRaw(req)
@@ -75,19 +74,16 @@ func (p *VertexAIProvider) getChatRequest(request *types.ChatCompletionRequest) 
 	// 对于 Gemini 模型，需要清理请求数据
 	var finalRequest any = vertexaiRequest
 	if p.Category.Category == "gemini" {
-		// 序列化请求以便清理
 		rawData, err := json.Marshal(vertexaiRequest)
 		if err != nil {
 			return nil, common.ErrorWrapper(err, "marshal_vertexai_request_failed", http.StatusInternalServerError)
 		}
-
-		// 清理数据
-		cleanedData, err := gemini.CleanGeminiRequestData(rawData, true)
-		if err != nil {
-			return nil, common.ErrorWrapper(err, "clean_vertexai_request_failed", http.StatusInternalServerError)
+		var dataMap map[string]interface{}
+		if err := json.Unmarshal(rawData, &dataMap); err != nil {
+			return nil, common.ErrorWrapper(err, "unmarshal_vertexai_request_failed", http.StatusInternalServerError)
 		}
-
-		finalRequest = cleanedData
+		gemini.CleanGeminiRequestMap(dataMap, true)
+		finalRequest = dataMap
 	}
 
 	// 错误处理

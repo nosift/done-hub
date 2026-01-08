@@ -25,7 +25,6 @@ func (p *VertexAIExpressProvider) CreateChatCompletion(request *types.ChatComple
 		return nil, errWithCode
 	}
 	defer req.Body.Close()
-	p.ClearRawBody()
 
 	geminiChatResponse := &gemini.GeminiChatResponse{}
 	_, errWithCode = p.Requester.SendRequest(req, geminiChatResponse, false)
@@ -52,7 +51,6 @@ func (p *VertexAIExpressProvider) CreateChatCompletionStream(request *types.Chat
 		return nil, errWithCode
 	}
 	defer req.Body.Close()
-	p.ClearRawBody()
 
 	// 发送请求
 	resp, errWithCode := p.Requester.SendRequestRaw(req)
@@ -139,33 +137,29 @@ func (p *VertexAIExpressProvider) getChatRequest(geminiRequest *gemini.GeminiCha
 
 	var body any
 	if isRelay {
-		var exists bool
 		rawData, exists := p.GetRawBody()
 		if !exists {
 			return nil, common.StringErrorWrapperLocal("request body not found", "request_body_not_found", http.StatusInternalServerError)
 		}
-		// 使用 true (isVertexAI) 来清理请求
-		cleanedData, err := gemini.CleanGeminiRequestData(rawData, true)
-		if err != nil {
-			return nil, common.ErrorWrapper(err, "clean_relay_data_failed", http.StatusInternalServerError)
+		var dataMap map[string]interface{}
+		if err := json.Unmarshal(rawData, &dataMap); err != nil {
+			return nil, common.ErrorWrapper(err, "unmarshal_relay_data_failed", http.StatusInternalServerError)
 		}
-		body = cleanedData
+		gemini.CleanGeminiRequestMap(dataMap, true)
+		body = dataMap
 	} else {
 		p.pluginHandle(geminiRequest)
 
-		// 序列化为 JSON
 		jsonBytes, err := json.Marshal(geminiRequest)
 		if err != nil {
 			return nil, common.ErrorWrapper(err, "marshal_failed", http.StatusInternalServerError)
 		}
-
-		// 清理数据 (isVertexAI=true)
-		cleanedData, err := gemini.CleanGeminiRequestData(jsonBytes, true)
-		if err != nil {
-			return nil, common.ErrorWrapper(err, "clean_data_failed", http.StatusInternalServerError)
+		var dataMap map[string]interface{}
+		if err := json.Unmarshal(jsonBytes, &dataMap); err != nil {
+			return nil, common.ErrorWrapper(err, "unmarshal_data_failed", http.StatusInternalServerError)
 		}
-
-		body = cleanedData
+		gemini.CleanGeminiRequestMap(dataMap, true)
+		body = dataMap
 	}
 
 	req, errWithCode := p.NewRequestWithCustomParams(http.MethodPost, fullRequestURL, body, headers, geminiRequest.Model)

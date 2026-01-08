@@ -21,7 +21,6 @@ func (p *AntigravityProvider) CreateGeminiChat(request *gemini.GeminiChatRequest
 		return nil, errWithCode
 	}
 	defer req.Body.Close()
-	p.ClearRawBody()
 
 	// 使用包装的响应结构
 	antigravityResponse := &AntigravityResponse{}
@@ -56,7 +55,6 @@ func (p *AntigravityProvider) CreateGeminiChatStream(request *gemini.GeminiChatR
 		return nil, errWithCode
 	}
 	defer req.Body.Close()
-	p.ClearRawBody()
 
 	channel := p.GetChannel()
 
