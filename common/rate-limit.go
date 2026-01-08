@@ -1,70 +1,150 @@
 package common
 
 import (
+	"context"
+	"hash/fnv"
 	"sync"
 	"time"
 )
 
+const (
+	// 分片数量，必须是2的幂
+	shardCount = 32
+)
+
+// rateLimitShard 单个分片
+type rateLimitShard struct {
+	store map[string]*[]int64
+	mutex sync.Mutex
+}
+
+// InMemoryRateLimiter 基于分片锁的内存限流器
+// 使用分片锁减少高并发场景下的锁竞争
 type InMemoryRateLimiter struct {
-	store              map[string]*[]int64
-	mutex              sync.Mutex
+	shards             [shardCount]*rateLimitShard
 	expirationDuration time.Duration
+	ctx                context.Context
+	cancel             context.CancelFunc
+	initOnce           sync.Once
 }
 
+// getShard 根据key获取对应的分片
+func (l *InMemoryRateLimiter) getShard(key string) *rateLimitShard {
+	h := fnv.New32a()
+	h.Write([]byte(key))
+	return l.shards[h.Sum32()&(shardCount-1)]
+}
+
+// Init 初始化限流器
 func (l *InMemoryRateLimiter) Init(expirationDuration time.Duration) {
-	if l.store == nil {
-		l.mutex.Lock()
-		if l.store == nil {
-			l.store = make(map[string]*[]int64)
-			l.expirationDuration = expirationDuration
-			if expirationDuration > 0 {
-				go l.clearExpiredItems()
+	l.initOnce.Do(func() {
+		l.ctx, l.cancel = context.WithCancel(context.Background())
+		l.expirationDuration = expirationDuration
+
+		// 初始化所有分片
+		for i := 0; i < shardCount; i++ {
+			l.shards[i] = &rateLimitShard{
+				store: make(map[string]*[]int64),
 			}
 		}
-		l.mutex.Unlock()
+
+		// 启动清理goroutine
+		if expirationDuration > 0 {
+			go l.clearExpiredItems()
+		}
+	})
+}
+
+// Stop 停止限流器，释放资源
+func (l *InMemoryRateLimiter) Stop() {
+	if l.cancel != nil {
+		l.cancel()
 	}
 }
 
+// clearExpiredItems 定期清理过期项
 func (l *InMemoryRateLimiter) clearExpiredItems() {
+	ticker := time.NewTicker(l.expirationDuration)
+	defer ticker.Stop()
+
 	for {
-		time.Sleep(l.expirationDuration)
-		l.mutex.Lock()
-		now := time.Now().Unix()
-		for key := range l.store {
-			queue := l.store[key]
-			size := len(*queue)
-			if size == 0 || now-(*queue)[size-1] > int64(l.expirationDuration.Seconds()) {
-				delete(l.store, key)
-			}
+		select {
+		case <-l.ctx.Done():
+			return
+		case <-ticker.C:
+			l.doCleanup()
 		}
-		l.mutex.Unlock()
 	}
 }
 
-// Request parameter duration's unit is seconds
-func (l *InMemoryRateLimiter) Request(key string, maxRequestNum int, duration int64) bool {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
-	// [old <-- new]
-	queue, ok := l.store[key]
+// doCleanup 执行清理逻辑
+func (l *InMemoryRateLimiter) doCleanup() {
 	now := time.Now().Unix()
-	if ok {
-		if len(*queue) < maxRequestNum {
-			*queue = append(*queue, now)
-			return true
-		} else {
-			if now-(*queue)[0] >= duration {
-				*queue = (*queue)[1:]
-				*queue = append(*queue, now)
-				return true
-			} else {
-				return false
+	expirationSeconds := int64(l.expirationDuration.Seconds())
+
+	for i := 0; i < shardCount; i++ {
+		shard := l.shards[i]
+		shard.mutex.Lock()
+
+		for key, queue := range shard.store {
+			// 队列顺序：[旧 --> 新]，从头部清理过期元素
+			cutoff := 0
+			for j := 0; j < len(*queue); j++ {
+				if now-(*queue)[j] > expirationSeconds {
+					cutoff = j + 1
+				} else {
+					// 后面的都是新的，不用再查了
+					break
+				}
+			}
+			// 移除过期元素
+			if cutoff > 0 {
+				*queue = (*queue)[cutoff:]
+			}
+			// 队列空了才删key
+			if len(*queue) == 0 {
+				delete(shard.store, key)
 			}
 		}
-	} else {
-		s := make([]int64, 0, maxRequestNum)
-		l.store[key] = &s
-		*(l.store[key]) = append(*(l.store[key]), now)
+
+		shard.mutex.Unlock()
 	}
-	return true
+}
+
+// Request 检查并记录请求，duration单位为秒
+// 返回true表示允许请求，false表示被限流
+func (l *InMemoryRateLimiter) Request(key string, maxRequestNum int, duration int64) bool {
+	shard := l.getShard(key)
+	shard.mutex.Lock()
+	defer shard.mutex.Unlock()
+
+	now := time.Now().Unix()
+
+	queue, ok := shard.store[key]
+	if !ok {
+		// 新key，创建队列
+		s := make([]int64, 0, maxRequestNum)
+		s = append(s, now)
+		shard.store[key] = &s
+		return true
+	}
+
+	// 队列顺序：[旧 --> 新]
+	if len(*queue) < maxRequestNum {
+		// 未达到限制，直接追加
+		*queue = append(*queue, now)
+		return true
+	}
+
+	// 达到限制，检查最旧的请求是否过期
+	// (*queue)[0] 是最旧的时间戳
+	if now-(*queue)[0] >= duration {
+		// 最旧的请求已过期，移除并添加新请求
+		*queue = (*queue)[1:]
+		*queue = append(*queue, now)
+		return true
+	}
+
+	// 限流
+	return false
 }
