@@ -42,6 +42,7 @@ func (p *GeminiProvider) CreateGeminiChat(request *GeminiChatRequest) (*GeminiCh
 		return nil, errWithCode
 	}
 	defer req.Body.Close()
+	p.ClearRawBody()
 
 	geminiResponse := &GeminiChatResponse{}
 	// 发送请求
@@ -67,6 +68,7 @@ func (p *GeminiProvider) CreateGeminiChatStream(request *GeminiChatRequest) (req
 		return nil, errWithCode
 	}
 	defer req.Body.Close()
+	p.ClearRawBody()
 
 	channel := p.GetChannel()
 

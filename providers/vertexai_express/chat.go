@@ -25,6 +25,7 @@ func (p *VertexAIExpressProvider) CreateChatCompletion(request *types.ChatComple
 		return nil, errWithCode
 	}
 	defer req.Body.Close()
+	p.ClearRawBody()
 
 	geminiChatResponse := &gemini.GeminiChatResponse{}
 	_, errWithCode = p.Requester.SendRequest(req, geminiChatResponse, false)
@@ -51,6 +52,7 @@ func (p *VertexAIExpressProvider) CreateChatCompletionStream(request *types.Chat
 		return nil, errWithCode
 	}
 	defer req.Body.Close()
+	p.ClearRawBody()
 
 	// 发送请求
 	resp, errWithCode := p.Requester.SendRequestRaw(req)
@@ -150,19 +152,19 @@ func (p *VertexAIExpressProvider) getChatRequest(geminiRequest *gemini.GeminiCha
 		body = cleanedData
 	} else {
 		p.pluginHandle(geminiRequest)
-		
+
 		// 序列化为 JSON
 		jsonBytes, err := json.Marshal(geminiRequest)
 		if err != nil {
 			return nil, common.ErrorWrapper(err, "marshal_failed", http.StatusInternalServerError)
 		}
-		
+
 		// 清理数据 (isVertexAI=true)
 		cleanedData, err := gemini.CleanGeminiRequestData(jsonBytes, true)
 		if err != nil {
 			return nil, common.ErrorWrapper(err, "clean_data_failed", http.StatusInternalServerError)
 		}
-		
+
 		body = cleanedData
 	}
 

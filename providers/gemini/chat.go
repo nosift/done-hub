@@ -48,6 +48,7 @@ func (p *GeminiProvider) CreateChatCompletion(request *types.ChatCompletionReque
 		return nil, errWithCode
 	}
 	defer req.Body.Close()
+	p.ClearRawBody()
 
 	geminiChatResponse := &GeminiChatResponse{}
 	// 发送请求
@@ -76,6 +77,7 @@ func (p *GeminiProvider) CreateChatCompletionStream(request *types.ChatCompletio
 		return nil, errWithCode
 	}
 	defer req.Body.Close()
+	p.ClearRawBody()
 
 	// 发送请求
 	resp, errWithCode := p.Requester.SendRequestRaw(req)

@@ -40,6 +40,7 @@ func (p *VertexAIProvider) Send(request *types.ChatCompletionRequest) (*http.Res
 		return nil, errWithCode
 	}
 	defer req.Body.Close()
+	p.ClearRawBody()
 
 	// 发送请求
 	return p.Requester.SendRequestRaw(req)

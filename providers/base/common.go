@@ -442,3 +442,9 @@ func (p *BaseProvider) GetRawBody() ([]byte, bool) {
 	}
 	return nil, false
 }
+
+// ClearRawBody 清理缓存的请求体以释放内存
+// 应在请求体不再需要后调用（如已发送到上游后）
+func (p *BaseProvider) ClearRawBody() {
+	p.Context.Set(config.GinRequestBodyKey, nil)
+}

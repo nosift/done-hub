@@ -16,6 +16,7 @@ func (p *VertexAIProvider) CreateGeminiChat(request *gemini.GeminiChatRequest) (
 		return nil, errWithCode
 	}
 	defer req.Body.Close()
+	p.ClearRawBody()
 
 	geminiResponse := &gemini.GeminiChatResponse{}
 	// 发送请求
@@ -44,6 +45,7 @@ func (p *VertexAIProvider) CreateGeminiChatStream(request *gemini.GeminiChatRequ
 		return nil, errWithCode
 	}
 	defer req.Body.Close()
+	p.ClearRawBody()
 
 	channel := p.GetChannel()
 

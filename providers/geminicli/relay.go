@@ -21,6 +21,7 @@ func (p *GeminiCliProvider) CreateGeminiChat(request *gemini.GeminiChatRequest) 
 		return nil, errWithCode
 	}
 	defer req.Body.Close()
+	p.ClearRawBody()
 
 	// 使用包装的响应结构
 	cliResponse := &GeminiCliResponse{}
@@ -55,6 +56,7 @@ func (p *GeminiCliProvider) CreateGeminiChatStream(request *gemini.GeminiChatReq
 		return nil, errWithCode
 	}
 	defer req.Body.Close()
+	p.ClearRawBody()
 
 	channel := p.GetChannel()
 
