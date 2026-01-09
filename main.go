@@ -179,6 +179,7 @@ func SyncChannelCache(frequency int) {
 		model.ChannelGroup.Load()
 		model.PricingInstance.Init()
 		model.ModelOwnedBysInstance.Load()
+		model.GlobalUserGroupRatio.Load()
 	}
 }
 
