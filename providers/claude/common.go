@@ -66,6 +66,9 @@ func ErrorToClaudeErr(err error) *ClaudeError {
 }
 
 func ClaudeUsageMerge(usage *Usage, mergeUsage *Usage) {
+	if usage == nil || mergeUsage == nil {
+		return
+	}
 	if mergeUsage.InputTokens > usage.InputTokens {
 		usage.InputTokens = mergeUsage.InputTokens
 	}
