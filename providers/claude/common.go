@@ -85,7 +85,7 @@ func ClaudeUsageToOpenaiUsage(cUsage *Usage, usage *types.Usage) bool {
 		return false
 	}
 
-	if cUsage.InputTokens == 0 || cUsage.OutputTokens == 0 {
+	if cUsage.InputTokens == 0 && cUsage.OutputTokens == 0 {
 		return false
 	}
 
