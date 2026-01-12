@@ -290,7 +290,7 @@ func fetchChannelByModel(c *gin.Context, modelName string) (*model.Channel, erro
 	channel, err := model.ChannelGroup.NextByValidatedModel(group, modelName, c, filters...)
 	if err != nil {
 		// 这里只处理渠道相关的错误，模型匹配错误已在上层处理
-		message := fmt.Sprintf(model.ErrNoAvailableChannelForModel, group, modelName)
+		message := fmt.Sprintf(model.ErrNoAvailableChannelForModel, model.GlobalUserGroupRatio.GetDisplayName(group), modelName)
 		if channel != nil {
 			logger.SysError(fmt.Sprintf("渠道不存在：%d", channel.Id))
 			message = model.ErrDatabaseConsistencyBroken

@@ -635,7 +635,7 @@ func (cc *ChannelsChooser) GetMatchedModelName(group, modelName string) (string,
 	cc.RLock()
 	defer cc.RUnlock()
 	if _, ok := cc.Rule[group]; !ok {
-		return "", fmt.Errorf(ErrNoAvailableChannelForModel, group, modelName)
+		return "", fmt.Errorf(ErrNoAvailableChannelForModel, GlobalUserGroupRatio.GetDisplayName(group), modelName)
 	}
 
 	// 如果直接匹配到了，返回原始模型名称
@@ -666,7 +666,7 @@ func (cc *ChannelsChooser) GetMatchedModelName(group, modelName string) (string,
 	}
 
 	if matchModel == "" {
-		message := fmt.Sprintf(ErrNoAvailableChannelForModel, group, modelName)
+		message := fmt.Sprintf(ErrNoAvailableChannelForModel, GlobalUserGroupRatio.GetDisplayName(group), modelName)
 		return "", errors.New(message)
 	}
 
@@ -677,7 +677,7 @@ func (cc *ChannelsChooser) Next(group, modelName string, filters ...ChannelsFilt
 	cc.RLock()
 	defer cc.RUnlock()
 	if _, ok := cc.Rule[group]; !ok {
-		return nil, fmt.Errorf(ErrNoAvailableChannelForModel, group, modelName)
+		return nil, fmt.Errorf(ErrNoAvailableChannelForModel, GlobalUserGroupRatio.GetDisplayName(group), modelName)
 	}
 
 	channelsPriority, ok := cc.Rule[group][modelName]
@@ -731,7 +731,7 @@ func (cc *ChannelsChooser) NextByValidatedModel(group, validatedModelName string
 	defer cc.RUnlock()
 
 	if _, ok := cc.Rule[group]; !ok {
-		return nil, fmt.Errorf(ErrNoAvailableChannelForModel, group, validatedModelName)
+		return nil, fmt.Errorf(ErrNoAvailableChannelForModel, GlobalUserGroupRatio.GetDisplayName(group), validatedModelName)
 	}
 
 	channelsPriority, ok := cc.Rule[group][validatedModelName]
@@ -758,7 +758,7 @@ func (cc *ChannelsChooser) GetGroupModels(group string) ([]string, error) {
 	defer cc.RUnlock()
 
 	if _, ok := cc.Rule[group]; !ok {
-		return nil, fmt.Errorf(ErrNoAvailableChannelForModel, group, "*")
+		return nil, fmt.Errorf(ErrNoAvailableChannelForModel, GlobalUserGroupRatio.GetDisplayName(group), "*")
 	}
 
 	models := make([]string, 0, len(cc.Rule[group]))
