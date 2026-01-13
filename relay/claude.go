@@ -74,6 +74,9 @@ func (r *relayClaudeOnly) getPromptTokens() (int, error) {
 
 func (r *relayClaudeOnly) send() (err *types.OpenAIErrorWithStatusCode, done bool) {
 
+	// 应用 Claude Thinking 约束校验（tool_choice 冲突检测 + max_tokens 自动调整）
+	r.applyClaudeThinkingConstraints()
+
 	// 检查是否为自定义渠道，如果是则使用Claude->OpenAI->Claude的转换逻辑
 	channelType := r.provider.GetChannel().Type
 
@@ -819,6 +822,31 @@ func (r *relayClaudeOnly) deepCleanSchemaMetaOnly(obj interface{}) interface{} {
 			}
 		}
 
+		// 过滤 required 数组，移除 properties 中不存在的属性名
+		// Gemini API 要求 required 中的属性必须在 properties 中定义
+		if required, hasRequired := cleaned["required"]; hasRequired {
+			if properties, hasProps := cleaned["properties"].(map[string]interface{}); hasProps {
+				if requiredArr, ok := required.([]interface{}); ok {
+					filteredRequired := make([]interface{}, 0)
+					for _, reqItem := range requiredArr {
+						if reqStr, ok := reqItem.(string); ok {
+							if _, exists := properties[reqStr]; exists {
+								filteredRequired = append(filteredRequired, reqItem)
+							}
+						}
+					}
+					if len(filteredRequired) > 0 {
+						cleaned["required"] = filteredRequired
+					} else {
+						delete(cleaned, "required")
+					}
+				}
+			} else {
+				// 没有 properties 时，直接删除 required
+				delete(cleaned, "required")
+			}
+		}
+
 		return cleaned
 	case []interface{}:
 		cleaned := make([]interface{}, len(v))
@@ -962,6 +990,31 @@ func (r *relayClaudeOnly) deepCleanSchema(obj interface{}) interface{} {
 		if _, hasProperties := cleaned["properties"]; hasProperties {
 			if _, hasType := cleaned["type"]; !hasType {
 				cleaned["type"] = "object"
+			}
+		}
+
+		// 过滤 required 数组，移除 properties 中不存在的属性名
+		// Gemini API 要求 required 中的属性必须在 properties 中定义
+		if required, hasRequired := cleaned["required"]; hasRequired {
+			if properties, hasProps := cleaned["properties"].(map[string]interface{}); hasProps {
+				if requiredArr, ok := required.([]interface{}); ok {
+					filteredRequired := make([]interface{}, 0)
+					for _, reqItem := range requiredArr {
+						if reqStr, ok := reqItem.(string); ok {
+							if _, exists := properties[reqStr]; exists {
+								filteredRequired = append(filteredRequired, reqItem)
+							}
+						}
+					}
+					if len(filteredRequired) > 0 {
+						cleaned["required"] = filteredRequired
+					} else {
+						delete(cleaned, "required")
+					}
+				}
+			} else {
+				// 没有 properties 时，直接删除 required
+				delete(cleaned, "required")
 			}
 		}
 
@@ -1132,23 +1185,21 @@ func (r *relayClaudeOnly) convertOpenAIStreamToClaude(stream requester.StreamRea
 	contentIndex := 0
 	processedInThisChunk := make(map[int]bool)
 
+	// 工具调用状态管理 - 使用请求级别的局部变量，避免全局变量导致的内存泄漏
+	toolCallStates := make(map[int]map[string]interface{}) // toolCallIndex -> toolCallInfo
+	toolCallToContentIndex := make(map[int]int)            // toolCallIndex -> contentBlockIndex
+
 	// 保存最后的 usage 信息，用于 EOF 时补发
 	var lastUsage map[string]interface{}
 
 	// 累积工具调用的 token 数（用于当上游不提供 usage 时的计算）
 	toolCallStatesForTokens := make(map[int]map[string]string) // 用于记录工具调用状态以便最后计算 tokens
 
-	// 安全关闭函数，确保流正确结束
 	safeClose := func() {
 		if !isClosed {
 			isClosed = true
-			// 清理工具调用状态
-			toolCallStates = make(map[int]map[string]interface{})
-			toolCallToContentIndex = make(map[int]int)
 		}
 	}
-
-	// 确保在函数结束时关闭流
 	defer safeClose()
 
 	var firstResponseTime int64
@@ -1296,7 +1347,7 @@ streamLoop:
 						toolCallChunks++
 						for _, toolCall := range toolCalls {
 							if toolCallMap, ok := toolCall.(map[string]interface{}); ok {
-								r.processToolCallDelta(toolCallMap, &contentIndex, flusher, processedInThisChunk, hasTextContentStarted, &isClosed, &hasFinished)
+								r.processToolCallDelta(toolCallMap, &contentIndex, flusher, processedInThisChunk, hasTextContentStarted, &isClosed, &hasFinished, toolCallStates, toolCallToContentIndex)
 
 								// 累积工具调用信息（在流结束时统一计算 tokens）
 								if function, funcExists := toolCallMap["function"].(map[string]interface{}); funcExists {
@@ -1497,14 +1548,9 @@ streamLoop:
 	return firstResponseTime
 }
 
-// 工具调用状态管理
-var (
-	toolCallStates         = make(map[int]map[string]interface{}) // toolCallIndex -> toolCallInfo
-	toolCallToContentIndex = make(map[int]int)                    // toolCallIndex -> contentBlockIndex
-)
-
 // processToolCallDelta 处理工具调用的增量数据
-func (r *relayClaudeOnly) processToolCallDelta(toolCall map[string]interface{}, contentIndex *int, flusher http.Flusher, processedInThisChunk map[int]bool, hasTextContentStarted bool, isClosed *bool, hasFinished *bool) {
+// toolCallStates和toolCallToContentIndex作为参数传入，避免全局变量导致的内存泄漏和并发问题
+func (r *relayClaudeOnly) processToolCallDelta(toolCall map[string]interface{}, contentIndex *int, flusher http.Flusher, processedInThisChunk map[int]bool, hasTextContentStarted bool, isClosed *bool, hasFinished *bool, toolCallStates map[int]map[string]interface{}, toolCallToContentIndex map[int]int) {
 	// 获取工具调用索引
 	toolCallIndex := 0
 	if index, exists := toolCall["index"].(float64); exists {
@@ -1802,6 +1848,9 @@ func (r *relayClaudeOnly) convertOpenAIStreamToClaudeWithTransformer(stream requ
 	// 创建一个模拟的 HTTP 响应来包装流数据
 	pr, pw := io.Pipe()
 
+	// 确保在函数退出时关闭PipeReader，防止goroutine泄漏
+	defer pr.Close()
+
 	// 在 goroutine 中将流数据写入管道
 	go func() {
 		defer pw.Close()
@@ -1843,6 +1892,7 @@ func (r *relayClaudeOnly) convertOpenAIStreamToClaudeWithTransformer(stream requ
 	// use transform manager to handle stream response
 	claudeStream, err := transformManager.ProcessStreamResponse(mockResponse)
 	if err != nil {
+		// pr会通过defer自动关闭，这会导致pw.Close()被触发，goroutine正常退出
 		return time.Now().Unix()
 	}
 
@@ -2060,4 +2110,38 @@ func (r *relayClaudeOnly) isClaudeThinkingEnabled() bool {
 
 	// 检查 thinking 参数的 type 是否为 "enabled"
 	return r.claudeRequest.Thinking.Type == "enabled"
+}
+
+// applyClaudeThinkingConstraints 应用 Claude Thinking 约束校验
+// 1. tool_choice 强制工具使用时禁用 thinking（Anthropic API 限制）
+// 2. 确保 max_tokens > thinking.budget_tokens
+func (r *relayClaudeOnly) applyClaudeThinkingConstraints() {
+	if r.claudeRequest == nil || r.claudeRequest.Thinking == nil {
+		return
+	}
+
+	// 约束1: tool_choice="any"/"tool" 与 thinking 互斥
+	if r.claudeRequest.ToolChoice != nil {
+		toolChoiceType := r.claudeRequest.ToolChoice.Type
+		if toolChoiceType == "any" || toolChoiceType == "tool" {
+			r.claudeRequest.Thinking = nil
+			return
+		}
+	}
+
+	// 约束2: 确保 max_tokens > thinking.budget_tokens
+	if r.claudeRequest.Thinking.Type != "enabled" {
+		return
+	}
+
+	budgetTokens := r.claudeRequest.Thinking.BudgetTokens
+	if budgetTokens <= 0 {
+		return
+	}
+
+	const fallbackBuffer = 4000
+	requiredMaxTokens := budgetTokens + fallbackBuffer
+	if r.claudeRequest.MaxTokens < requiredMaxTokens {
+		r.claudeRequest.MaxTokens = requiredMaxTokens
+	}
 }

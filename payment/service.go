@@ -86,6 +86,12 @@ func (s *PaymentService) getNotifyURL() string {
 	}
 
 	notifyDomain = strings.TrimSuffix(notifyDomain, "/")
+
+	// 易支付使用固定的回调路径
+	if s.Payment.Type == "epay" {
+		return fmt.Sprintf("%s/api/user/epay/notify", notifyDomain)
+	}
+
 	return fmt.Sprintf("%s/api/payment/notify/%s", notifyDomain, s.Payment.UUID)
 }
 

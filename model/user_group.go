@@ -179,6 +179,15 @@ func (cgrm *UserGroupRatio) GetAPIRate(symbol string) int {
 	return userGroup.APIRate
 }
 
+// GetDisplayName 获取分组的展示名称，如果找不到则返回 symbol 本身
+func (cgrm *UserGroupRatio) GetDisplayName(symbol string) string {
+	userGroup := cgrm.GetBySymbol(symbol)
+	if userGroup == nil || userGroup.Name == "" {
+		return symbol
+	}
+	return userGroup.Name
+}
+
 func (cgrm *UserGroupRatio) GetPublicGroupList() []string {
 	cgrm.RLock()
 	defer cgrm.RUnlock()

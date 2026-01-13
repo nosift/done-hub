@@ -23,6 +23,7 @@ var Logo = ""
 var TopUpLink = ""
 var ChatLink = ""
 var ChatLinks = ""
+var AnalyticsCode = ""
 var QuotaPerUnit = 500 * 1000.0 // $0.002 / 1K tokens
 var DisplayInCurrencyEnabled = true
 
@@ -329,6 +330,7 @@ const (
 	ChannelTypeClaudeCode      = 58
 	ChannelTypeCodex           = 59
 	ChannelTypeAntigravity     = 60
+	ChannelTypeVertexAIExpress = 61
 )
 
 const (

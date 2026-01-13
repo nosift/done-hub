@@ -31,7 +31,8 @@ const getValidationSchema = (t) =>
     icon: Yup.string().required(t('payment_edit.requiredIcon')),
     fixed_fee: Yup.number().min(0, t('payment_edit.requiredFixedFee')),
     percent_fee: Yup.number().min(0, t('payment_edit.requiredPercentFee')),
-    currency: Yup.string().required(t('payment_edit.requiredCurrency'))
+    currency: Yup.string().required(t('payment_edit.requiredCurrency')),
+    currency_rate: Yup.number().moreThan(0, t('payment_edit.requiredCurrencyRate'))
   });
 
 const originInputs = {
@@ -44,6 +45,7 @@ const originInputs = {
   fixed_fee: 0,
   percent_fee: 0,
   currency: 'CNY',
+  currency_rate: 1,
   config: {},
   sort: 0,
   enable: true
@@ -287,6 +289,28 @@ const EditModal = ({ open, paymentId, onCancel, onOk }) => {
                   </FormHelperText>
                 ) : (
                   <FormHelperText id="helper-tex-channel-currency-label"> {t('payment_edit.currencyTip')} </FormHelperText>
+                )}
+              </FormControl>
+
+              <FormControl fullWidth error={Boolean(touched.currency_rate && errors.currency_rate)} sx={{ ...theme.typography.otherInput }}>
+                <InputLabel htmlFor="channel-currency_rate-label">{t('payment_edit.currencyRate')}</InputLabel>
+                <OutlinedInput
+                  id="channel-currency_rate-label"
+                  label={t('payment_edit.currencyRate')}
+                  type="number"
+                  value={values.currency_rate}
+                  name="currency_rate"
+                  onBlur={handleBlur}
+                  onChange={handleChange}
+                  inputProps={{ autoComplete: 'currency_rate' }}
+                  aria-describedby="helper-text-channel-currency_rate-label"
+                />
+                {touched.currency_rate && errors.currency_rate ? (
+                  <FormHelperText error id="helper-tex-currency_rate-label">
+                    {errors.currency_rate}
+                  </FormHelperText>
+                ) : (
+                  <FormHelperText id="helper-tex-currency_rate-label"> {t('payment_edit.currencyRateTip')} </FormHelperText>
                 )}
               </FormControl>
 

@@ -224,107 +224,142 @@ func (p *ClaudeCodeProvider) extractMetadataFromOriginalRequest(claudeRequest *c
 }
 
 // applyClaudeCodeCompatibility 应用 ClaudeCode 兼容性处理
-// 确保 system 字段中包含必需的 "You are Claude Code, Anthropic's official CLI for Claude." 缓存控制项
-// 并添加 metadata.user_id
+// 确保 system 字段中包含必需的 Claude Code 指令，并添加 metadata.user_id
 func (p *ClaudeCodeProvider) applyClaudeCodeCompatibility(claudeRequest *claude.ClaudeRequest) {
-	// 首先尝试从原始请求体中提取 metadata
 	p.extractMetadataFromOriginalRequest(claudeRequest)
-	// 必需的缓存控制项
+	p.ensureClaudeCodeSystemInstruction(claudeRequest)
+	p.ensureMetadataUserId(claudeRequest)
+}
+
+// ensureClaudeCodeSystemInstruction 确保 system 字段包含 Claude Code 指令
+func (p *ClaudeCodeProvider) ensureClaudeCodeSystemInstruction(claudeRequest *claude.ClaudeRequest) {
+	const claudeCodeInstructionText = "You are Claude Code, Anthropic's official CLI for Claude."
+
 	requiredCacheItem := claude.MessageContent{
 		Type: "text",
-		Text: "You are Claude Code, Anthropic's official CLI for Claude.",
+		Text: claudeCodeInstructionText,
 		CacheControl: map[string]string{
 			"type": "ephemeral",
 		},
 	}
 
-	// 检查是否已存在该缓存控制项
-	hasRequiredItem := false
-
-	// 将 system 转换为统一的 []MessageContent 格式
-	var systemContents []claude.MessageContent
-
+	// system 为空时直接设置
 	if claudeRequest.System == nil || claudeRequest.System == "" {
-		// 情况1: system 为空，直接使用必需项
-		systemContents = []claude.MessageContent{requiredCacheItem}
+		claudeRequest.System = []claude.MessageContent{requiredCacheItem}
+		return
+	}
+
+	// system 是字符串
+	if systemStr, ok := claudeRequest.System.(string); ok {
+		if strings.TrimSpace(systemStr) == "" {
+			claudeRequest.System = []claude.MessageContent{requiredCacheItem}
+			return
+		}
+		if strings.HasPrefix(strings.TrimSpace(systemStr), claudeCodeInstructionText) {
+			return
+		}
+		claudeRequest.System = []claude.MessageContent{
+			requiredCacheItem,
+			{Type: "text", Text: systemStr},
+		}
+		return
+	}
+
+	// system 是 []interface{}
+	if systemArray, ok := claudeRequest.System.([]interface{}); ok {
+		systemContents := p.convertSystemArrayToContents(systemArray, claudeCodeInstructionText)
 		claudeRequest.System = systemContents
 		return
 	}
 
-	if systemStr, ok := claudeRequest.System.(string); ok {
-		// 情况2: system 是字符串
-		if strings.TrimSpace(systemStr) != "" {
-			// 保留原有字符串内容
-			systemContents = append(systemContents, claude.MessageContent{
-				Type: "text",
-				Text: systemStr,
-			})
+	// system 是 []MessageContent
+	if systemArray, ok := claudeRequest.System.([]claude.MessageContent); ok {
+		if len(systemArray) > 0 && systemArray[0].Type == "text" && systemArray[0].Text == claudeCodeInstructionText {
+			return
 		}
-	} else if systemArray, ok := claudeRequest.System.([]interface{}); ok {
-		// 情况3: system 是 []interface{} 类型
-		for _, item := range systemArray {
-			if itemMap, ok := item.(map[string]interface{}); ok {
-				if itemType, ok := itemMap["type"].(string); ok && itemType == "text" {
-					if text, ok := itemMap["text"].(string); ok {
-						// 检查是否是必需的缓存控制项
-						if text == "You are Claude Code, Anthropic's official CLI for Claude." {
-							if cacheControl, exists := itemMap["cache_control"].(map[string]interface{}); exists {
-								if cacheType, ok := cacheControl["type"].(string); ok && cacheType == "ephemeral" {
-									hasRequiredItem = true
-								}
-							}
-						}
-
-						// 保留所有内容
-						content := claude.MessageContent{
-							Type: "text",
-							Text: text,
-						}
-						if cacheControl, exists := itemMap["cache_control"].(map[string]interface{}); exists {
-							cacheControlMap := make(map[string]string)
-							for k, v := range cacheControl {
-								if strVal, ok := v.(string); ok {
-									cacheControlMap[k] = strVal
-								}
-							}
-							content.CacheControl = cacheControlMap
-						}
-						systemContents = append(systemContents, content)
-					}
-				}
-			}
-		}
-	} else if systemArray, ok := claudeRequest.System.([]claude.MessageContent); ok {
-		// 情况4: system 是 []MessageContent 类型
-		for _, item := range systemArray {
-			// 检查是否是必需的缓存控制项
-			if item.Type == "text" && item.Text == "You are Claude Code, Anthropic's official CLI for Claude." {
-				if item.CacheControl != nil {
-					if cacheControlMap, ok := item.CacheControl.(map[string]string); ok {
-						if cacheType, exists := cacheControlMap["type"]; exists && cacheType == "ephemeral" {
-							hasRequiredItem = true
-						}
-					} else if cacheControlMap, ok := item.CacheControl.(map[string]interface{}); ok {
-						if cacheType, exists := cacheControlMap["type"].(string); exists && cacheType == "ephemeral" {
-							hasRequiredItem = true
-						}
-					}
-				}
-			}
-			// 保留所有内容
-			systemContents = append(systemContents, item)
+		if !p.hasClaudeCodeInstruction(systemArray, claudeCodeInstructionText) {
+			claudeRequest.System = append([]claude.MessageContent{requiredCacheItem}, systemArray...)
 		}
 	}
+}
 
-	// 如果不存在必需的缓存控制项，添加到开头
-	if !hasRequiredItem {
+// convertSystemArrayToContents 将 []interface{} 转换为 []MessageContent
+func (p *ClaudeCodeProvider) convertSystemArrayToContents(systemArray []interface{}, instructionText string) []claude.MessageContent {
+	requiredCacheItem := claude.MessageContent{
+		Type: "text",
+		Text: instructionText,
+		CacheControl: map[string]string{
+			"type": "ephemeral",
+		},
+	}
+
+	var systemContents []claude.MessageContent
+	hasRequired := false
+
+	for _, item := range systemArray {
+		itemMap, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		itemType, _ := itemMap["type"].(string)
+		if itemType != "text" {
+			continue
+		}
+		text, _ := itemMap["text"].(string)
+		if text == "" {
+			continue
+		}
+
+		if text == instructionText {
+			if cacheControl, exists := itemMap["cache_control"].(map[string]interface{}); exists {
+				if cacheType, _ := cacheControl["type"].(string); cacheType == "ephemeral" {
+					hasRequired = true
+				}
+			}
+		}
+
+		content := claude.MessageContent{Type: "text", Text: text}
+		if cacheControl, exists := itemMap["cache_control"].(map[string]interface{}); exists {
+			cacheControlMap := make(map[string]string)
+			for k, v := range cacheControl {
+				if strVal, ok := v.(string); ok {
+					cacheControlMap[k] = strVal
+				}
+			}
+			content.CacheControl = cacheControlMap
+		}
+		systemContents = append(systemContents, content)
+	}
+
+	if !hasRequired {
 		systemContents = append([]claude.MessageContent{requiredCacheItem}, systemContents...)
 	}
+	return systemContents
+}
 
-	// 更新 system 字段
-	claudeRequest.System = systemContents
+// hasClaudeCodeInstruction 检查是否已包含 Claude Code 指令
+func (p *ClaudeCodeProvider) hasClaudeCodeInstruction(contents []claude.MessageContent, instructionText string) bool {
+	for _, item := range contents {
+		if item.Type == "text" && item.Text == instructionText {
+			if item.CacheControl != nil {
+				if cacheControlMap, ok := item.CacheControl.(map[string]string); ok {
+					if cacheControlMap["type"] == "ephemeral" {
+						return true
+					}
+				}
+				if cacheControlMap, ok := item.CacheControl.(map[string]interface{}); ok {
+					if cacheType, _ := cacheControlMap["type"].(string); cacheType == "ephemeral" {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
 
-	// 添加 metadata.user_id（如果不存在）
+// ensureMetadataUserId 确保 metadata.user_id 存在
+func (p *ClaudeCodeProvider) ensureMetadataUserId(claudeRequest *claude.ClaudeRequest) {
 	if claudeRequest.Metadata == nil {
 		claudeRequest.Metadata = &claude.ClaudeMetadata{
 			UserId: generateClaudeCodeUserId(),

@@ -24,7 +24,7 @@ type GeminiStreamHandler struct {
 	Usage   *types.Usage
 	Request *types.ChatCompletionRequest
 
-	key     string
+	Key     string
 	Context *gin.Context // 添加 Context 用于获取响应模型名称
 }
 
@@ -87,7 +87,7 @@ func (p *GeminiProvider) CreateChatCompletionStream(request *types.ChatCompletio
 		Usage:   p.Usage,
 		Request: request,
 
-		key:     channel.Key,
+		Key:     channel.Key,
 		Context: p.Context, // 传递 Context
 	}
 
@@ -108,16 +108,26 @@ func (p *GeminiProvider) getChatRequest(geminiRequest *GeminiChatRequest, isRela
 
 	var body any
 	if isRelay {
-		var exists bool
-		rawData, exists := p.GetRawBody()
-		if !exists {
-			return nil, common.StringErrorWrapperLocal("request body not found", "request_body_not_found", http.StatusInternalServerError)
+		// 尝试获取已处理的请求体（重试时复用）
+		dataMap, wasVertexAI, exists := p.GetProcessedBody()
+		if !exists || wasVertexAI {
+			rawData, rawExists := p.GetRawBody()
+			if !rawExists {
+				if exists {
+					CleanGeminiRequestMap(dataMap, false)
+				} else {
+					return nil, common.StringErrorWrapperLocal("request body not found", "request_body_not_found", http.StatusInternalServerError)
+				}
+			} else {
+				dataMap = make(map[string]interface{})
+				if err := json.Unmarshal(rawData, &dataMap); err != nil {
+					return nil, common.ErrorWrapper(err, "unmarshal_relay_data_failed", http.StatusInternalServerError)
+				}
+				CleanGeminiRequestMap(dataMap, false)
+			}
+			p.SetProcessedBody(dataMap, false)
 		}
-		cleanedData, err := CleanGeminiRequestData(rawData, false)
-		if err != nil {
-			return nil, common.ErrorWrapper(err, "clean_relay_data_failed", http.StatusInternalServerError)
-		}
-		body = cleanedData
+		body = dataMap
 	} else {
 		p.pluginHandle(geminiRequest)
 		body = geminiRequest
@@ -169,7 +179,12 @@ func CleanGeminiRequestData(rawData []byte, isVertexAI bool) ([]byte, error) {
 	if err := json.Unmarshal(rawData, &data); err != nil {
 		return nil, err
 	}
+	CleanGeminiRequestMap(data, isVertexAI)
+	return json.Marshal(data)
+}
 
+// CleanGeminiRequestMap 直接在 map 上清理 Gemini 请求数据中的不兼容字段
+func CleanGeminiRequestMap(data map[string]interface{}, isVertexAI bool) {
 	// 清理 contents 中的 function_call 和 function_response 字段中的 id
 	if contents, ok := data["contents"].([]interface{}); ok {
 		// 验证和修复函数调用序列
@@ -267,8 +282,6 @@ func CleanGeminiRequestData(rawData []byte, isVertexAI bool) ([]byte, error) {
 			}
 		}
 	}
-
-	return json.Marshal(data)
 }
 
 // validateAndFixFunctionCallSequence 验证和修复函数调用序列
@@ -433,24 +446,56 @@ func ConvertFromChatOpenai(request *types.ChatCompletionRequest) (*GeminiChatReq
 		geminiRequest.GenerationConfig.ResponseModalities = []string{"AUDIO"}
 	}
 
-	// 检查是否应该启用 thinking（历史消息约束检查）
+	// 历史消息约束检查：防止下游 400 错误
+	// 如果启用 thinking 但历史 assistant 消息不以 thinking/redacted_thinking 开头，则不启用
 	canEnableThinking := shouldEnableThinking(request.Messages)
 
-	if request.Reasoning != nil && canEnableThinking {
-		budget := request.Reasoning.MaxTokens
-		maxTokens := request.MaxTokens
+	// 1. 基础检查：是否有 reasoning 参数
+	if request.Reasoning != nil {
 
-		// 验证 thinkingBudget < maxOutputTokens
-		if maxTokens > 0 && budget >= maxTokens {
-			// 自动下调 budget
-			budget = maxTokens - 1
-		}
+		if canEnableThinking {
+			budget := request.Reasoning.MaxTokens
+			maxTokens := request.MaxTokens
 
-		// 如果下调后 budget <= 0，则不启用 thinking
-		if budget > 0 {
-			geminiRequest.GenerationConfig.ThinkingConfig = &ThinkingConfig{
-				ThinkingBudget:  &budget,
-				IncludeThoughts: true, // 当有 Reasoning 参数时，启用思考输出
+			// 3. Token 校验与调整：验证 thinkingBudget < maxOutputTokens
+			// Gemini API 要求 Budget 必须严格小于 MaxOutputTokens
+			if maxTokens > 0 && budget >= maxTokens {
+				// 自动下调 budget
+				budget = maxTokens - 1
+			}
+
+			// 初始化 ThinkingConfig
+			thinkingConfig := &ThinkingConfig{
+				IncludeThoughts: true, // 只要进入 Reasoning 模式，通常都希望包含思考过程
+			}
+			hasConfig := false
+
+			// 4. 设置 Budget (仅当 budget 有效时)
+			if budget > 0 {
+				thinkingConfig.ThinkingBudget = &budget
+				hasConfig = true
+			}
+
+			// 5. 设置 ThinkingLevel (映射 effort 参数)
+			if request.Reasoning.Effort != "" {
+				effortToLevelMap := map[string]string{
+					"minimal": "MINIMAL",
+					"low":     "LOW",
+					"medium":  "MEDIUM",
+					"high":    "HIGH",
+				}
+				if level, ok := effortToLevelMap[request.Reasoning.Effort]; ok {
+					thinkingConfig.ThinkingLevel = level
+					hasConfig = true
+				}
+			}
+
+			// 6. 最终应用配置
+			// 注意：如果有 reasoning 参数但 budget 归零且无 effort，可能不应该下发空 config
+			// 但如果有 IncludeThoughts=true，通常也是有效的。
+			// 这里判断 hasConfig 主要是为了确保至少设置了 Budget 或 Level，或者保留 IncludeThoughts
+			if hasConfig {
+				geminiRequest.GenerationConfig.ThinkingConfig = thinkingConfig
 			}
 		}
 	}
@@ -668,7 +713,7 @@ func (h *GeminiStreamHandler) HandlerStream(rawLine *[]byte, dataChan chan strin
 		return
 	}
 
-	aiError := errorHandle(&geminiResponse.GeminiErrorResponse, h.key)
+	aiError := errorHandle(&geminiResponse.GeminiErrorResponse, h.Key)
 	if aiError != nil {
 		errChan <- aiError
 		return

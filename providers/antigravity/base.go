@@ -131,6 +131,9 @@ type AntigravityProvider struct {
 }
 
 func getConfig(endpoint string) base.ProviderConfig {
+	if endpoint == "" {
+		endpoint = "https://daily-cloudcode-pa.sandbox.googleapis.com"
+	}
 	return base.ProviderConfig{
 		BaseURL:           endpoint,
 		ChatCompletions:   "/v1internal/chat/completions",

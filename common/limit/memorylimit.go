@@ -51,7 +51,7 @@ func NewMemoryLimiter(rate int, rpm int, window time.Duration, useTokenBucket bo
 		rpm:             rpm,
 		window:          window,
 		isTokenBucket:   useTokenBucket,
-		cleanupInterval: 5 * time.Minute, // Clean up every 5 minutes
+		cleanupInterval: 3 * time.Minute, // Clean up every 3 minutes to prevent memory accumulation in high concurrency scenarios
 		stopCleanup:     make(chan struct{}),
 	}
 

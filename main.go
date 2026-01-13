@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/gin-contrib/sessions"
@@ -84,6 +85,7 @@ func main() {
 
 	common.InitTokenEncoders()
 	requester.InitHttpClient()
+	initMemoryMonitor()
 	// Initialize Telegram bot
 	telegram.InitTelegramBot()
 
@@ -177,5 +179,25 @@ func SyncChannelCache(frequency int) {
 		model.ChannelGroup.Load()
 		model.PricingInstance.Init()
 		model.ModelOwnedBysInstance.Load()
+		model.GlobalUserGroupRatio.Load()
 	}
+}
+
+// initMemoryMonitor 初始化内存监控，定期记录内存使用情况
+func initMemoryMonitor() {
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			var memStats runtime.MemStats
+			runtime.ReadMemStats(&memStats)
+
+			heapMB := memStats.HeapAlloc / 1024 / 1024
+			sysMB := memStats.Sys / 1024 / 1024
+			numGoroutines := runtime.NumGoroutine()
+
+			logger.SysLog(fmt.Sprintf("Memory: Heap=%dMB, Sys=%dMB, Goroutines=%d", heapMB, sysMB, numGoroutines))
+		}
+	}()
 }

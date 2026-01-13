@@ -66,6 +66,9 @@ func ErrorToClaudeErr(err error) *ClaudeError {
 }
 
 func ClaudeUsageMerge(usage *Usage, mergeUsage *Usage) {
+	if usage == nil || mergeUsage == nil {
+		return
+	}
 	if mergeUsage.InputTokens > usage.InputTokens {
 		usage.InputTokens = mergeUsage.InputTokens
 	}
@@ -85,7 +88,7 @@ func ClaudeUsageToOpenaiUsage(cUsage *Usage, usage *types.Usage) bool {
 		return false
 	}
 
-	if cUsage.InputTokens == 0 || cUsage.OutputTokens == 0 {
+	if cUsage.InputTokens == 0 && cUsage.OutputTokens == 0 {
 		return false
 	}
 

@@ -54,7 +54,11 @@ func SetCache(key string, value any, expiration time.Duration) error {
 }
 
 func DeleteCache(key string) error {
-	return kvCache.Delete(ctx, key)
+	err := kvCache.Delete(ctx, key)
+	if err != nil && errors.Is(err, store.NotFound{}) {
+		return nil // key不存在时删除视为成功
+	}
+	return err
 }
 
 func GetOrSetCache[T any](key string, expiration time.Duration, fn func() (T, error), timeout time.Duration) (T, error) {

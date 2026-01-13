@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -436,8 +437,15 @@ func GetRateRealtime(c *gin.Context) {
 func GetUserDashboard(c *gin.Context) {
 	id := c.GetInt("id")
 
-	now := time.Now()
-	toDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	// 使用 TZ 环境变量的时区，与 UpdateStatistics 保持一致
+	location := time.Local
+	if tzEnv := os.Getenv("TZ"); tzEnv != "" {
+		if loc, err := time.LoadLocation(tzEnv); err == nil {
+			location = loc
+		}
+	}
+	now := time.Now().In(location)
+	toDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location)
 	endOfDay := toDay.Add(-time.Second).Add(time.Hour * 24).Format("2006-01-02")
 	startOfDay := toDay.AddDate(0, 0, -7).Format("2006-01-02")
 
@@ -1019,6 +1027,61 @@ func ChangeUserQuota(c *gin.Context) {
 
 	model.RecordQuotaLog(userId, model.LogTypeManage, req.Quota, c.ClientIP(), remark)
 
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+	})
+}
+
+type UnbindRequest struct {
+	Type string `json:"type"`
+}
+
+func Unbind(c *gin.Context) {
+	var req UnbindRequest
+	err := json.NewDecoder(c.Request.Body).Decode(&req)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "无效的参数",
+		})
+		return
+	}
+	id := c.GetInt("id")
+	user, err := model.GetUserById(id, false)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+	updates := make(map[string]interface{})
+	switch req.Type {
+	case "github":
+		updates["github_id"] = ""
+		updates["github_id_new"] = nil
+	case "wechat":
+		updates["wechat_id"] = ""
+	case "lark":
+		updates["lark_id"] = ""
+	case "oidc":
+		updates["oidc_id"] = ""
+	default:
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "未知的绑定类型",
+		})
+		return
+	}
+	err = model.DB.Model(user).Updates(updates).Error
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",

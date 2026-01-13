@@ -16,10 +16,10 @@ func InitHttpClient() {
 		DialContext: utils.Socks5ProxyFunc,
 		Proxy:       utils.ProxyFunc,
 
-		MaxIdleConns:        1000,
-		MaxIdleConnsPerHost: 200,
-		MaxConnsPerHost:     500,
-		IdleConnTimeout:     90 * time.Second,
+		MaxIdleConns:        200,
+		MaxIdleConnsPerHost: 50,
+		MaxConnsPerHost:     100,
+		IdleConnTimeout:     60 * time.Second,
 
 		// 超时配置 - 针对 SSE 长连接优化
 		TLSHandshakeTimeout:   tlsHandshakeTimeout,
